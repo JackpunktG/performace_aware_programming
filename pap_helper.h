@@ -22,6 +22,8 @@ void start_timer(Timer* timer);
 void end_timer(Timer* timer);
 void timer_print_sec(Timer* timer);
 void timer_print_nano(Timer* timer);
+double timer_sec(Timer* timer);
+uint64_t timer_nano(Timer* timer);
 void compare_timers(Timer* timer1, Timer* timer2);
 
 /* ========================================================================
@@ -82,7 +84,17 @@ void timer_print_sec(Timer* timer)
 }
 void timer_print_nano(Timer* timer)
 {
-    printf("Time taken: %f nanoseconds\n", (timer->after.tv_sec - timer->before.tv_sec) * 1e9 + (timer->after.tv_nsec - timer->before.tv_nsec));
+    printf("Time taken: %lu nanoseconds\n", (uint64_t)((timer->after.tv_sec - timer->before.tv_sec) * 1e9 + (timer->after.tv_nsec - timer->before.tv_nsec)));
+}
+
+double timer_sec(Timer* timer)
+{
+    return ((timer->after.tv_sec - timer->before.tv_sec) + (timer->after.tv_nsec - timer->before.tv_nsec) / 1e9);
+}
+
+uint64_t timer_nano(Timer* timer)
+{
+    return (uint64_t)((timer->after.tv_sec - timer->before.tv_sec) * 1e9 + (timer->after.tv_nsec - timer->before.tv_nsec));
 }
 
 void compare_timers(Timer* timer1, Timer* timer2)
