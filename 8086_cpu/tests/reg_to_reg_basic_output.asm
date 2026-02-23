@@ -1,0 +1,37 @@
+; output from encoding reg_to_reg_basic to assembly
+
+bits 16
+
+MOV AX, BX
+MOV BX, CX
+MOV CX, DX
+MOV DX, SI
+MOV SI, DI
+MOV DI, BP
+MOV BP, SP
+MOV SP, AX
+MOV AX, SI
+MOV AX, DI
+MOV BX, BP
+MOV CX, SP
+MOV DX, BP
+MOV SI, AX
+MOV DI, BX
+MOV BP, CX
+MOV SP, DX
+MOV AX, AX
+MOV BX, BX
+MOV SP, SP
+MOV BP, BP
+MOV AL, BL
+MOV AH, CL
+MOV BL, DH
+MOV BH, AL
+MOV CL, AH
+MOV CH, BH
+MOV DL, CH
+MOV DH, DL
+MOV AL, AL
+MOV AH, AH
+MOV CH, CH
+MOV DL, DL
