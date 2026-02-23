@@ -1,4 +1,7 @@
-/* Following along with cassy Muratori performace awareness programming course, a header lib for helper functions. */
+/* =======================================================================
+   Following along with cassy Muratori performace awareness programming course,
+   a header lib for helper functions.
+    ======================================================================== */
 #ifndef PAP_HELPER_H
 #define PAP_HELPER_H
 
