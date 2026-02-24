@@ -15,11 +15,14 @@
 #define DIRECTION_BIT (1<<1)
 typedef enum
 {
-    MOV_REG_MEM     = 0b100010,
-    MOV_IMM_REG     = 0b1011,
-    MOV_IMM_REG_MEM = 0b1100011,
-    MOV_MEM_ACC     = 0b1010000,
-    MOV_ACC_MEM     = 0b1010001,
+    MATH_OP_REG_MEM_EITHER,
+    MATH_OP_IMM_REG_MEM,
+    MATH_OP_IMM_ACC,
+    MOV_REG_MEM,       //  = 0b100010,
+    MOV_IMM_REG,       // = 0b1011,
+    MOV_IMM_REG_MEM,  //  = 0b1100011,
+    MOV_MEM_ACC,       //  = 0b1010000,
+    MOV_ACC_MEM,
 } Instruction;
 #define INSTRUCTION_BITMASK 0b11111100
 
@@ -114,14 +117,112 @@ Instruction instruction_from_byte(uint8_t byte)
                         else
                             return MOV_REG_MEM;
                     }
+                    else
+                    {
+                        if (bit_check(byte, 2))
+                        {}
+                        else
+                            return MATH_OP_IMM_REG_MEM;
+                    }
                 }
             }
         }
     }
     else
-    {}
+    {
+        if (bit_check(byte, 6))
+        {}
+        else
+        {
+            if (bit_check(byte, 5))
+            {
+                if (bit_check(byte, 4))
+                {
+                    if(bit_check(byte, 3))
+                    {
+                        if (bit_check(byte, 2))
+                        {
+                            if (bit_check(byte, 1))
+                            {}
+                            else
+                                return MATH_OP_IMM_ACC;
+                        }
+                        return MATH_OP_REG_MEM_EITHER;
+                    }
+                    else
+                    {
+                        // if (bit_check(byte, 3))
+                        // {
+                        //     if (bit_check(byte, 2))
+                        //     {
+                        //         if (bit_check(byte, 1))
+                        //         {}
+                        //         else
+                        //             return MATH_OP_IMM_ACC;
+                        //     }
+                        //     else
+                        //         return MATH_OP_REG_MEM_EITHER;
+                        // }
+                    }
+                }
+                else
+                {
+                    if (bit_check(byte, 3))
+                    {
+                        if (bit_check(byte, 2))
+                        {
+                            if (bit_check(byte, 1))
+                            {}
+                            else
+                                return MATH_OP_IMM_ACC;
+
+                        }
+                        else
+                            return MATH_OP_REG_MEM_EITHER;
+                    }
+
+                }
+            }
+            else
+            {
+                if (bit_check(byte, 4))
+                {}
+                else
+                {
+                    if(bit_check(byte, 3))
+                    {}
+                    else
+                    {
+                        if (bit_check(byte, 2))
+                        {
+                            if (bit_check(byte, 1))
+                            {}
+                            else
+                                return MATH_OP_IMM_ACC;
+                        }
+                        else
+                            return MATH_OP_REG_MEM_EITHER;
+                    }
+                }
+            }
+
+        }
+    }
     assert(0 && "ERROR Instruction couldn't be parsed from byte, or hasn't yet been implemented\n");
 }
+
+// typedef struct Instruction_Node Instruction_Node;
+// typedef struct Instruction_Node
+// {
+//     Instruction inst;
+//     Instruction_Node* zero;
+//     Instruction_Node* one;
+// } Instruction_Node;
+//
+// Instruction_Node* create_inst_tree(Arena* arena)
+// {
+//
+// }
 
 static inline short high_low_combine_signed(uint8_t low, uint8_t high)
 {
@@ -269,8 +370,18 @@ enum
 
 typedef enum
 {
+    MATH_ADD = 0b00000000,
+    MATH_SUB = 0b00101000,
+    MATH_CMP = 0b00111000
+} Math_typ;
+
+
+
+typedef enum
+{
     DIRECTION_BIT_ON    = (1<<0),
     WORD_BIT_ON         = (1<<1),
+    SIGN_EXTENDED       = (1<<2),
     INSTRUCTION_READY   = (1<<31)
 } Inst_Flags;
 
@@ -280,6 +391,7 @@ typedef struct
     Inst_Mod mod;
     REG_Address operand_1;
     REG_Address operand_2_rm;
+    Math_typ math_typ;
     uint8_t disp_l;
     uint8_t disp_h;
     uint8_t data_l;
@@ -287,6 +399,295 @@ typedef struct
     uint32_t inst_flags;
     uint8_t byte_count;
 } Assembly_Inst;
+
+
+#define SIGN_EXTENDED_BIT    (1<<1)
+#define REG_BITMASK          0b00111000
+#define RM_BITMASK           0b00000111
+#define RM_NO_DISP_EXCEPTION 0b00000110
+
+
+char* math_op_type_string(Assembly_Inst* inst)
+{
+    switch (inst->math_typ)
+    {
+    case MATH_ADD:
+        return "add";
+    case MATH_CMP:
+        return "cmp";
+    case MATH_SUB:
+        return "sub";
+    }
+    assert(0);
+}
+
+void mod_reg_rm_byte(const uint8_t read_byte, Assembly_Inst* inst)
+{
+    inst->operand_1 = read_byte & REG_BITMASK;
+    inst->operand_1 >>= 3;
+    if (inst->inst_flags & WORD_BIT_ON)
+        inst->operand_1 |= WORD_VAULE_ON;
+    inst->operand_2_rm  = read_byte & RM_BITMASK;
+
+    inst->mod = read_byte & INST_MOD_BITMASK;
+}
+
+#define MATH_OP_BITMASK 0b00111000
+static inline Math_typ math_op_type(const uint8_t read_byte)
+{
+    return read_byte & MATH_OP_BITMASK;
+}
+
+/* ===================================================
+   MATH OP - Register/Memory with either
+   =================================================*/
+void math_op_reg_mem_either(const uint8_t read_byte, Assembly_Inst* inst)
+{
+    switch (inst->byte_count)
+    {
+    case NEW_INSTRUCTION:
+        inst->math_typ = math_op_type(read_byte);
+        if (read_byte & WORD_BIT)
+            inst->inst_flags |= WORD_BIT_ON;
+        if (read_byte & DIRECTION_BIT)
+            inst->inst_flags |= DIRECTION_BIT_ON;
+        break;
+    case SECOND_BYTE:
+        mod_reg_rm_byte(read_byte, inst);
+        switch (inst->mod)
+        {
+        case REGISTER_MODE:
+            if (inst->inst_flags & WORD_BIT_ON)
+                inst->operand_2_rm |= WORD_VAULE_ON;
+            inst->inst_flags |= INSTRUCTION_READY;
+            break;
+        case NO_DISPLACEMENT:
+            if (!(inst->operand_2_rm == RM_NO_DISP_EXCEPTION))
+                inst->inst_flags |= INSTRUCTION_READY;
+            if (inst->inst_flags & WORD_BIT_ON)
+                inst->operand_2_rm |= WORD_VAULE_ON;
+            break;
+        case _8_BIT_DISPLACEMENT:
+        case _16_BIT_DISPLACEMENT:
+            break;
+        }
+        break;
+    case THIRD_BYTE:
+        inst->disp_l = read_byte;
+        if (inst->mod == _8_BIT_DISPLACEMENT)
+            inst->inst_flags |= INSTRUCTION_READY;
+        break;
+    case FOURTH_BYTE:
+        inst->disp_h = read_byte;
+        inst->inst_flags |= INSTRUCTION_READY;
+        break;
+    }
+}
+void print_math_op_reg_mem_either(Assembly_Inst* inst)
+{
+    switch (inst->mod)
+    {
+    case REGISTER_MODE:
+        printf("%s %s, %s\n", math_op_type_string(inst),
+               register_address_string((inst->inst_flags & DIRECTION_BIT_ON) ? inst->operand_1 : inst->operand_2_rm),
+               register_address_string((inst->inst_flags & DIRECTION_BIT_ON) ? inst->operand_2_rm : inst->operand_1));
+        break;
+    case NO_DISPLACEMENT:
+        if (inst->operand_2_rm == RM_NO_DISP_EXCEPTION || inst->operand_2_rm == (RM_NO_DISP_EXCEPTION | WORD_VAULE_ON))
+        {
+            printf("%s %s, [%hu]\n", math_op_type_string(inst),
+                   register_address_string((inst->inst_flags & DIRECTION_BIT_ON) ? inst->operand_1 : inst->operand_2_rm), high_low_combine_unsigned(inst->disp_l, inst->disp_h));
+        }
+        else
+        {
+            if (inst->inst_flags & DIRECTION_BIT_ON)
+            {
+                printf("%s %s, [%s]\n", math_op_type_string(inst), register_address_string(inst->operand_1),
+                       effective_address_calculation(inst->operand_2_rm));
+            }
+            else
+            {
+                printf("%s [%s], %s\n", math_op_type_string(inst),
+                       effective_address_calculation(inst->operand_2_rm), register_address_string(inst->operand_1));
+            }
+        }
+        break;
+    case _8_BIT_DISPLACEMENT:
+    case _16_BIT_DISPLACEMENT:
+        if (inst->inst_flags & DIRECTION_BIT_ON)
+        {
+            printf("%s %s, [%s + %hd]\n", math_op_type_string(inst),
+                   register_address_string((inst->inst_flags & DIRECTION_BIT_ON) ? inst->operand_1 : inst->operand_2_rm), effective_address_calculation((inst->inst_flags & DIRECTION_BIT_ON) ? inst->operand_2_rm : inst->operand_1), high_low_combine_signed(inst->disp_l, inst->disp_h));
+        }
+        else
+        {
+            printf("%s [%s + %hd], %s\n", math_op_type_string(inst),
+                   effective_address_calculation(inst->operand_2_rm), high_low_combine_signed(inst->disp_l, inst->disp_h), register_address_string(inst->operand_1));
+        }
+        break;
+    }
+}
+
+/* ===================================================
+   MATH OP - Immediate to memory/register
+   =================================================*/
+
+void math_op_imm_reg_mem(const uint8_t read_byte, Assembly_Inst* inst)
+{
+    switch (inst->byte_count)
+    {
+    case NEW_INSTRUCTION:
+        if (read_byte & WORD_BIT)
+            inst->inst_flags |= WORD_BIT_ON;
+        if (read_byte & SIGN_EXTENDED_BIT)
+            inst->inst_flags |= SIGN_EXTENDED;
+        break;
+    case SECOND_BYTE:
+        inst->math_typ = math_op_type(read_byte);
+        mod_reg_rm_byte(read_byte, inst);
+        if (inst->inst_flags & WORD_BIT_ON)
+            inst->operand_2_rm |= WORD_VAULE_ON;
+        break;
+    case THIRD_BYTE:
+        switch (inst->mod)
+        {
+        case REGISTER_MODE:
+            inst->data_l = read_byte;
+            if (inst->inst_flags & WORD_BIT_ON && !(inst->inst_flags & SIGN_EXTENDED));
+            else
+                inst->inst_flags |= INSTRUCTION_READY;
+            break;
+        case NO_DISPLACEMENT:
+            if (inst->operand_2_rm == RM_NO_DISP_EXCEPTION || (inst->inst_flags & WORD_BIT_ON && inst->operand_2_rm == (RM_NO_DISP_EXCEPTION | WORD_VAULE_ON)))
+                inst->disp_l = read_byte;
+            else
+            {
+                inst->data_l = read_byte;
+                if (inst->inst_flags & WORD_BIT_ON && !(inst->inst_flags & SIGN_EXTENDED));
+                else
+                    inst->inst_flags |= INSTRUCTION_READY;
+            }
+            break;
+        case _8_BIT_DISPLACEMENT:
+        case _16_BIT_DISPLACEMENT:
+            inst->disp_l = read_byte;
+            break;
+        }
+        break;
+    case FOURTH_BYTE:
+        switch (inst->mod)
+        {
+        case REGISTER_MODE:
+            inst->data_h = read_byte;
+            inst->inst_flags |= INSTRUCTION_READY;
+            break;
+        case NO_DISPLACEMENT:
+            if (inst->operand_2_rm == RM_NO_DISP_EXCEPTION || (inst->inst_flags & WORD_BIT_ON && inst->operand_2_rm == (RM_NO_DISP_EXCEPTION | WORD_VAULE_ON)))
+                inst->disp_h = read_byte;
+            else
+            {
+                inst->data_h = read_byte;
+                inst->inst_flags |= INSTRUCTION_READY;
+            }
+            break;
+        case _8_BIT_DISPLACEMENT:
+            inst->data_l = read_byte;
+            if (inst->inst_flags & WORD_BIT_ON && !(inst->inst_flags & SIGN_EXTENDED));
+            else
+                inst->inst_flags |= INSTRUCTION_READY;
+            break;
+        case _16_BIT_DISPLACEMENT:
+            inst->disp_h = read_byte;
+            break;
+        }
+        break;
+    case FIFTH_BYTE:
+        switch (inst->mod)
+        {
+        case REGISTER_MODE:
+            assert(0);
+        case NO_DISPLACEMENT:
+            inst->data_l = read_byte;
+            if (inst->inst_flags & WORD_BIT_ON && !(inst->inst_flags & SIGN_EXTENDED));
+            else
+                inst->inst_flags |= INSTRUCTION_READY;
+            break;
+        case _8_BIT_DISPLACEMENT:
+            inst->data_h = read_byte;
+            inst->inst_flags |= INSTRUCTION_READY;
+            break;
+        case _16_BIT_DISPLACEMENT:
+            inst->data_l = read_byte;
+            if (inst->inst_flags & WORD_BIT_ON && !(inst->inst_flags & SIGN_EXTENDED));
+            else
+                inst->inst_flags |= INSTRUCTION_READY;
+            break;
+        }
+        break;
+    case SIXTH_BYTE:
+        switch (inst->mod)
+        {
+        case REGISTER_MODE:
+        case _8_BIT_DISPLACEMENT:
+            assert(0);
+        case NO_DISPLACEMENT:
+        case _16_BIT_DISPLACEMENT:
+            inst->data_h = read_byte;
+            inst->inst_flags |= INSTRUCTION_READY;
+            break;
+        }
+    }
+}
+
+void print_math_op_imm_reg_mem(Assembly_Inst* inst)
+{
+    switch (inst->mod)
+    {
+    case REGISTER_MODE:
+        printf("%s %s, %hd\n", math_op_type_string(inst),  register_address_string(inst->operand_1), high_low_combine_signed(inst->data_l, inst->data_h));
+        break;
+    case NO_DISPLACEMENT:
+        if (inst->operand_2_rm == RM_NO_DISP_EXCEPTION || (inst->inst_flags & WORD_BIT_ON && inst->operand_2_rm == (RM_NO_DISP_EXCEPTION | WORD_VAULE_ON)))
+        {
+            printf("%s %s [%hd], %hd\n", math_op_type_string(inst),inst->inst_flags & WORD_BIT_ON ? "word" : "byte", high_low_combine_signed(inst->disp_l, inst->disp_h), high_low_combine_signed(inst->data_l, inst->data_h));
+        }
+        else
+        {
+            printf("%s %s [%s], %hd\n", math_op_type_string(inst),inst->inst_flags & WORD_BIT_ON ? "word" : "byte",
+                   effective_address_calculation(inst->operand_2_rm), high_low_combine_signed(inst->data_l, inst->data_h));
+        }
+        break;
+    case _8_BIT_DISPLACEMENT:
+    case _16_BIT_DISPLACEMENT:
+        printf("%s %s [%s + %hd], %hd\n", math_op_type_string(inst),inst->inst_flags & WORD_BIT_ON ? "word" : "byte",
+               effective_address_calculation(inst->operand_2_rm), high_low_combine_signed(inst->disp_l, inst->disp_h),  high_low_combine_signed(inst->data_l, inst->data_h));
+        break;
+    }
+}
+
+/* ===================================================
+   MATH OP - Immediate to accumulator
+   =================================================*/
+void math_op_imm_acc_parse(const uint8_t read_byte, Assembly_Inst* inst)
+{
+    switch (inst->byte_count)
+    {
+    case NEW_INSTRUCTION:
+        inst->math_typ = math_op_type(read_byte);
+        if (read_byte & WORD_BIT)
+            inst->inst_flags |= WORD_BIT_ON;
+        break;
+    case SECOND_BYTE:
+        inst->data_l = read_byte;
+        if (!(inst->inst_flags & WORD_BIT_ON))
+            inst->inst_flags |= INSTRUCTION_READY;
+        break;
+    case THIRD_BYTE:
+        inst->data_h = read_byte;
+        inst->inst_flags |= INSTRUCTION_READY;
+        break;
+    }
+}
 
 /* ===================================================
    MOV - Accumulator/Memory to memory/accumulator
@@ -311,9 +712,7 @@ void mov_accumulator_memory_parse(const uint8_t read_byte, Assembly_Inst* inst)
     }
 }
 
-#define REG_BITMASK          0b00111000
-#define RM_BITMASK           0b00000111
-#define RM_NO_DISP_EXCEPTION 0b00000110
+
 /* ===================================================
    MOV - Immediate to registar/memory
    =================================================*/
@@ -608,6 +1007,15 @@ int main(int argc, char* argv[])
             case MOV_MEM_ACC:
                 mov_accumulator_memory_parse(read_byte, &inst);
                 break;
+            case MATH_OP_IMM_ACC:
+                math_op_imm_acc_parse(read_byte, &inst);
+                break;
+            case MATH_OP_REG_MEM_EITHER:
+                math_op_reg_mem_either(read_byte, &inst);
+                break;
+            case MATH_OP_IMM_REG_MEM:
+                math_op_imm_reg_mem(read_byte, &inst);
+                break;
             default:
                 assert(0 && "ERROR whilst parsing byte\n");
             }
@@ -629,6 +1037,15 @@ int main(int argc, char* argv[])
             case MOV_ACC_MEM:
             case MOV_MEM_ACC:
                 mov_accumulator_memory_parse(read_byte, &inst);
+                break;
+            case MATH_OP_IMM_ACC:
+                math_op_imm_acc_parse(read_byte, &inst);
+                break;
+            case MATH_OP_REG_MEM_EITHER:
+                math_op_reg_mem_either(read_byte, &inst);
+                break;
+            case MATH_OP_IMM_REG_MEM:
+                math_op_imm_reg_mem(read_byte, &inst);
                 break;
             default:
                 assert(0 && "ERROR whilst parsing byte\n");
@@ -658,6 +1075,16 @@ int main(int argc, char* argv[])
             case MOV_MEM_ACC:
                 printf("%s ax, [%hu]\n", instruction_string(inst.inst),
                        high_low_combine_unsigned(inst.disp_l, inst.disp_h));
+                break;
+            case MATH_OP_IMM_ACC:
+                printf("%s ax, %u\n", math_op_type_string(&inst),
+                       high_low_combine_unsigned(inst.data_l, inst.data_h));
+                break;
+            case MATH_OP_REG_MEM_EITHER:
+                print_math_op_reg_mem_either(&inst);
+                break;
+            case MATH_OP_IMM_REG_MEM:
+                print_math_op_imm_reg_mem(&inst);
                 break;
             default:
                 assert(0 && "ERROR whilst parsing byte\n");
