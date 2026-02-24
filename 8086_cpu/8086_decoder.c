@@ -15,6 +15,7 @@
 #define DIRECTION_BIT (1<<1)
 typedef enum
 {
+    CONDITIONAL_RET_INST,
     MATH_OP_REG_MEM_EITHER,
     MATH_OP_IMM_REG_MEM,
     MATH_OP_IMM_ACC,
@@ -27,6 +28,79 @@ typedef enum
 #define INSTRUCTION_BITMASK 0b11111100
 
 
+typedef enum
+{
+    JO     = 0x70,
+    JNO    = 0x71,
+    JB     = 0x72,
+    JNB    = 0x73,
+    JE     = 0x74,
+    JNE    = 0x75,
+    JBE    = 0x76,
+    JNBE   = 0x77,
+    JS     = 0x78,
+    JNS    = 0x79,
+    JP     = 0x7A,
+    JNP    = 0x7B,
+    JL     = 0x7C,
+    JNL    = 0x7D,
+    JLE    = 0x7E,
+    JNLE   = 0x7F,
+    LOOPNE = 0xE0,
+    LOOPE  = 0xE1,
+    LOOP   = 0xE2,
+    JCXZ   = 0xE3
+
+} CONDITIONAL_RET;
+
+char* conditional_ret_string(CONDITIONAL_RET inst)
+{
+    switch (inst)
+    {
+    case LOOPNE:
+        return "loopne"; //loop while now zero or equal
+    case LOOPE:
+        return "loope"; // loop while zero or equal
+    case LOOP:
+        return "loop"; // loop CX times
+    case JCXZ:
+        return "jcxz"; // jump on CX zero
+    case JO:
+        return "jo";   // jump if overflow
+    case JNO:
+        return "jno";  // jump if not overflow
+    case JB:
+        return "jb";   // jump if below (unsigned <)
+    case JNB:
+        return "jnb";  // jump if not below (unsigned >=)
+    case JE:
+        return "je";   // jump if equal (zero)
+    case JNE:
+        return "jne";  // jump if not equal (not zero)
+    case JBE:
+        return "jbe";  // jump if below or equal (unsigned <=)
+    case JNBE:
+        return "jnbe"; // jump if not below or equal (unsigned >)
+    case JS:
+        return "js";   // jump if sign (negative)
+    case JNS:
+        return "jns";  // jump if not sign (non-negative)
+    case JP:
+        return "jp";   // jump if parity (parity even)
+    case JNP:
+        return "jnp";  // jump if not parity (parity odd)
+    case JL:
+        return "jl";   // jump if less (signed <)
+    case JNL:
+        return "jnl";  // jump if not less (signed >=)
+    case JLE:
+        return "jle";  // jump if less or equal (signed <=)
+    case JNLE:
+        return "jnle"; // jump if not less or equal (signed >)
+    default:
+        assert(0);
+    }
+}
 
 static inline uint8_t bit_check(const uint8_t byte, const uint8_t bit_check)
 {
@@ -36,6 +110,10 @@ static inline uint8_t bit_check(const uint8_t byte, const uint8_t bit_check)
 Instruction instruction_from_byte(uint8_t byte)
 {
     //print_binary_8(byte);
+
+    if ((byte >= JO && byte <= JNLE) || (byte >= LOOPNE && byte <= JCXZ))
+        return CONDITIONAL_RET_INST;
+
     // msb
     if (bit_check(byte, 7))
     {
@@ -971,6 +1049,22 @@ void mov_imm_reg_parse(const uint8_t read_byte, Assembly_Inst* inst)
     }
 
 }
+/* ===================================================
+   Conditional Return from CALL
+   =================================================*/
+void conditional_ret_inst_parse(const uint8_t read_byte, Assembly_Inst* inst)
+{
+    switch(inst->byte_count)
+    {
+    case NEW_INSTRUCTION:
+        inst->disp_l = read_byte;
+        break;
+    case SECOND_BYTE:
+        inst->disp_h = read_byte;
+        inst->inst_flags |= INSTRUCTION_READY;
+        break;
+    }
+}
 
 int main(int argc, char* argv[])
 {
@@ -1016,6 +1110,9 @@ int main(int argc, char* argv[])
             case MATH_OP_IMM_REG_MEM:
                 math_op_imm_reg_mem(read_byte, &inst);
                 break;
+            case CONDITIONAL_RET_INST:
+                conditional_ret_inst_parse(read_byte, & inst);
+                break;
             default:
                 assert(0 && "ERROR whilst parsing byte\n");
             }
@@ -1046,6 +1143,9 @@ int main(int argc, char* argv[])
                 break;
             case MATH_OP_IMM_REG_MEM:
                 math_op_imm_reg_mem(read_byte, &inst);
+                break;
+            case CONDITIONAL_RET_INST:
+                conditional_ret_inst_parse(read_byte, & inst);
                 break;
             default:
                 assert(0 && "ERROR whilst parsing byte\n");
@@ -1085,6 +1185,9 @@ int main(int argc, char* argv[])
                 break;
             case MATH_OP_IMM_REG_MEM:
                 print_math_op_imm_reg_mem(&inst);
+                break;
+            case CONDITIONAL_RET_INST:
+                printf("%s %hd\n", conditional_ret_string(inst.disp_l), inst.disp_h > 127 ? (short)inst.disp_h - 256 : inst.disp_h);
                 break;
             default:
                 assert(0 && "ERROR whilst parsing byte\n");
