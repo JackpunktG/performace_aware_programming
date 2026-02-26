@@ -9,7 +9,7 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    // print_inst_table();
+    //print_inst_table();
     Memory memory = {0};
 
     read_file(&memory, argv[1]);
