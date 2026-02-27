@@ -8,6 +8,13 @@
 #include "../pap_helper.h"
 
 #define array_count(Array) (sizeof(Array) / sizeof((Array)[0]))
+#ifdef DEBUG
+#undef DEBUG
+#define DEBUG(debug_print) fprintf(stderr, "[DEBUG] %s:%d:%s\n", __FILE__, __LINE__, __func__);\
+        (debug_print);
+#else
+#define DEBUG(debug_print)
+#endif
 
 typedef enum
 {
@@ -274,11 +281,18 @@ const char* get_effective_address(uint8_t rm, uint8_t mod, int32_t disp, char* b
     return buf;
 }
 
-static inline uint16_t bytes_calc(int32_t byte_l, int32_t byte_h)
+static inline uint16_t byte_calc(int32_t byte_l, int32_t byte_h)
 {
     return (uint16_t)(byte_l | ((byte_h != -1 ? byte_h : 0) << 8));
 }
 
+static inline short disp_calc(int32_t disp_l, int32_t disp_h)
+{
+    if (disp_h == -1)
+        return (short)(disp_l | (((int8_t)disp_l < 0 ? 0xFF : 0) << 8));
+    else
+        return (short)(disp_l | (disp_h  << 8));
+}
 void mov_construct(Assembly_Inst* assy, Instruction_Code* inst)
 {
     int32_t d      = ffetch(inst, Bits_D);
@@ -297,17 +311,39 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst)
     {
         uint8_t op_val     = (uint8_t)ffetch(inst, Bits_OP);
         const char* seg    = segment_registers[sr];
-        const char* rm_reg = word_registers[rm];
+        char effective_address[MAX_SIZE_OF_OPPERANT];
 
-        if (op_val == 0b10001100) // mov r/m, sr  (seg -> reg)
+        if (mod == REGISTER_MODE)
         {
-            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", rm_reg);
+            snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "%s", word_registers[rm]);
+        }
+        else
+        {
+            // direct address
+            if (mod == NO_DISPLACEMENT && rm == 0b110)
+            {
+                snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%hu]", byte_calc(disp_l, disp_h));
+            }
+            else if (mod == NO_DISPLACEMENT)
+            {
+                snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%s]",
+                         effective_addresses[rm]);
+            }
+            else
+            {
+                snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%s + %hd]",
+                         effective_addresses[rm], disp_calc(disp_l, disp_h));
+            }
+        }
+        if (op_val == 0b10001100) // mov r/m, sr
+        {
+            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
             snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", seg);
         }
-        else // 0x8E: mov sr, r/m  (reg -> seg)
+        else // mov sr, r/m
         {
             snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", seg);
-            snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", rm_reg);
+            snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
         }
         return;
     }
@@ -317,14 +353,14 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst)
     {
         const char* reg_name = w ? word_registers[reg] : byte_registers[reg];
         snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", reg_name);
-        snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s %hu", w ? "word" : "byte", bytes_calc(data_l, data_h));
+        snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s %hu", w ? "word" : "byte", byte_calc(data_l, data_h));
         return;
     }
 
     // memory to/from accumulator
     if (disp_l != -1 && mod == -1)
     {
-        uint16_t addr    = bytes_calc(disp_l, disp_h);
+        uint16_t addr    = byte_calc(disp_l, disp_h);
         const char* acc  = (w > 0) ? "ax" : "al";
         int32_t op_val   = ffetch(inst, Bits_OP);
 
@@ -360,7 +396,7 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst)
             // direct address
             if (mod == NO_DISPLACEMENT && rm == 0b110)
             {
-                snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%hu]", bytes_calc(disp_l, disp_h));
+                snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%hu]", byte_calc(disp_l, disp_h));
             }
             else if (mod == NO_DISPLACEMENT)
             {
@@ -369,8 +405,8 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst)
             }
             else
             {
-                snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%s + %hu]",
-                         effective_addresses[rm], bytes_calc(disp_l, disp_h));
+                snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%s + %hd]",
+                         effective_addresses[rm], disp_calc(disp_l, disp_h));
             }
         }
         if (d > 0)
@@ -406,7 +442,7 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst)
     {
         const char* acc = (w) ? "ax" : "al";
         snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", acc);
-        snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%hu", bytes_calc(data_l, data_h));
+        snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%hu", byte_calc(data_l, data_h));
         return;
     }
 
@@ -427,14 +463,14 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst)
             break;
         case NO_DISPLACEMENT:
             if (rm == 0b110)
-                snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%hu]", bytes_calc(disp_l, disp_h));
+                snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%hu]", byte_calc(disp_l, disp_h));
             else
                 snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%s]",
                          effective_addresses[rm]);
             break;
         case _8_BIT_DISPLACEMENT:
         case _16_BIT_DISPLACEMENT:
-            snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%s + %hu]", effective_addresses[rm], bytes_calc(disp_l, disp_h));
+            snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%s + %hd]", effective_addresses[rm], disp_calc(disp_l, disp_h));
             break;
         default:
             assert(0);
@@ -467,26 +503,27 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst)
             break;
         case NO_DISPLACEMENT:
             if (rm == 0b110)
-                snprintf(addr_loc, MAX_SIZE_OF_OPPERANT, "[%hu]", bytes_calc(disp_l, disp_h));
+                snprintf(addr_loc, MAX_SIZE_OF_OPPERANT, "[%hu]", byte_calc(disp_l, disp_h));
             else
                 snprintf(addr_loc, MAX_SIZE_OF_OPPERANT, "[%s]", effective_addresses[rm]);
             break;
         case _8_BIT_DISPLACEMENT:
         case _16_BIT_DISPLACEMENT:
-            snprintf(addr_loc, MAX_SIZE_OF_OPPERANT, "[%s + %hu]", effective_addresses[rm], bytes_calc(disp_l, disp_h));
+            snprintf(addr_loc, MAX_SIZE_OF_OPPERANT, "[%s + %hd]", effective_addresses[rm], disp_calc(disp_l, disp_h));
             break;
         default:
             assert(0);
         }
 
         snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", addr_loc);
-        snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s %hu", (w > 0) ? "word" : "byte", bytes_calc(data_l, data_h));
+        // 8-bit immediate, sign extended to 16bits
+        if (w && s)
+            snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s %hd", (w > 0) ? "word" : "byte", disp_calc(data_l, data_h));
+        else
+            snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s %hu", (w > 0) ? "word" : "byte", byte_calc(data_l, data_h));
 
         // changing the op_code to the proper mnemonic
-        if (ffetch(inst, Bits_Literal) == 0b111) // cmp as there is a gap
-            inst->type = Op_cmp;
-        else
-            inst->type = (Operation_Type)(inst->type + ffetch(inst, Bits_Literal));
+        inst->type = (Operation_Type)(inst->type + ffetch(inst, Bits_Literal));
 
         return;
 
@@ -494,9 +531,66 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst)
     assert(0 && "ERROR - when constructing arithmetic op\n");
 }
 
+void jump_construct(Assembly_Inst* assy, Instruction_Code* inst)
+{
+    snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%hhd", (int8_t)ffetch(inst, Bits_IP_INC8));
+}
+
+void mod_rm_effective_address(Assembly_Inst* assy, Instruction_Code* inst)
+{
+    int32_t w      = ffetch(inst, Bits_W);
+    int32_t mod    = ffetch(inst, Bits_MOD);
+    int32_t rm     = ffetch(inst, Bits_RM);
+    int32_t disp_l = ffetch(inst, Bits_Disp_L);
+    int32_t disp_h = ffetch(inst, Bits_Disp_H);
+
+    switch (mod)
+    {
+    case REGISTER_MODE:
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", (w > 0) ? word_registers[rm] : byte_registers[rm]);
+        break;
+    case NO_DISPLACEMENT:
+        if (rm == 0b110)
+            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "[%hu]", byte_calc(disp_l, disp_h));
+        else
+            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "[%s]", effective_addresses[rm]);
+        break;
+    case _8_BIT_DISPLACEMENT:
+    case _16_BIT_DISPLACEMENT:
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "[%s + %hd]", effective_addresses[rm], disp_calc(disp_l, disp_h));
+        break;
+    }
+}
+
+static inline void swap_opperants(Assembly_Inst* assy)
+{
+    char temp[MAX_SIZE_OF_OPPERANT];
+    snprintf(temp, MAX_SIZE_OF_OPPERANT, "%s", assy->opperant1);
+    snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", assy->opperant2);
+    snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", temp);
+}
+
+void inc_dec_neg_construct(Assembly_Inst* assy, Instruction_Code* inst)
+{
+    int32_t reg = ffetch(inst, Bits_REG);
+
+    if (reg == -1)
+    {
+        mod_rm_effective_address(assy, inst);
+        // changing the op_code to the proper mnemonic
+        if (inst->type != Op_neg)
+            inst->type = (Operation_Type)(inst->type + ffetch(inst, Bits_Literal));
+    }
+    else
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", word_registers[reg]);
+}
+
 void print_assembly_inst(Assembly_Inst* assy)
 {
-    printf("%s %s, %s\n", instruction_string(assy->mnemonic), assy->opperant1, assy->opperant2);
+    if (strlen(assy->opperant2) == 0)
+        printf("%s %s\n", instruction_string(assy->mnemonic), assy->opperant1);
+    else
+        printf("%s %s, %s\n", instruction_string(assy->mnemonic), assy->opperant1, assy->opperant2);
 }
 
 void construct_assembly_inst(Instruction_Code* inst)
@@ -504,24 +598,36 @@ void construct_assembly_inst(Instruction_Code* inst)
     Assembly_Inst assy;
     memset(&assy, 0, sizeof(Assembly_Inst));
 
-    switch (inst->type)
-    {
-    case Op_mov:
-        mov_construct(&assy, inst);
-        break;
-    case Op_add:
-    case Op_adc:
-    case Op_sub:
-    case Op_sbb:
-    case Op_cmp:
-    case Op_and:
-    case Op_or:
-        arithmetic_construct(&assy, inst);
-        break;
-
-    default:
-        assert(0);
-    }
+    // conditional jump instructions
+    if (inst->type >= Op_je && inst->type <= Op_jcxz)
+        jump_construct(&assy, inst);
+    else if (inst->field[1].usage == Not_Used)
+        ; // fast path for only complete 1 byte ops
+    else
+        switch (inst->type)
+        {
+        case Op_mov:
+            mov_construct(&assy, inst);
+            break;
+        case Op_test:
+        case Op_add:
+        case Op_adc:
+        case Op_sub:
+        case Op_sbb:
+        case Op_cmp:
+        case Op_and:
+        case Op_or:
+        case Op_xor:
+            arithmetic_construct(&assy, inst);
+            break;
+        case Op_neg:
+        case Op_dec:
+        case Op_inc:
+            inc_dec_neg_construct(&assy, inst);
+            break;
+        default:
+            assert(0);
+        }
 
     assy.mnemonic = inst->type;
 
@@ -574,14 +680,13 @@ int decode_instruction(Memory* memory, const uint32_t memory_index, const uint32
     // starting at the 2nd as we already got the op code from the table
     uint8_t field_index = 1;
     uint8_t saftey      = 0;
-    bool inst_finished  = false;
-    while(!inst_finished)
+    while(1)
     {
         if (inst.field[field_index].usage == Not_Used)
             break;
 
         const uint8_t read_byte = memory->data[memory_index + byte_number];
-        //print_binary_8(read_byte);
+        DEBUG(print_binary_8(read_byte))
 
         // calculating the offset and copying the next bit code into the table
         inst.field[field_index].offset = (running_total - (byte_number * 8));
@@ -610,7 +715,7 @@ int decode_instruction(Memory* memory, const uint32_t memory_index, const uint32
         case Bits_W:
             break;
         case Bits_S:
-            if (inst.type != Op_cmp)
+            if (inst.type != Op_cmp && inst.field[field_index].value)
                 unset_bits_field(&inst, Bits_Data_H);
             break;
 
@@ -646,7 +751,6 @@ int decode_instruction(Memory* memory, const uint32_t memory_index, const uint32
                 unset_bits_field(&inst, Bits_Data_H);
             break;
         case Bits_Data_H:
-            //inst_finished = true;
             break;
         case Bits_IP_INC8:
             break;
@@ -667,7 +771,7 @@ int decode_instruction(Memory* memory, const uint32_t memory_index, const uint32
         assert(saftey < 50 && "ERROR - loop saftey triggered in parsing of machine code\n");
 
     }
-    //debug_print_Assembly_Inst(&inst);
+    DEBUG(debug_print_Assembly_Inst(&inst))
 
     construct_assembly_inst(&inst);
     return byte_number;
@@ -685,7 +789,7 @@ void decode_instruction_stream(Memory* memory)
     uint32_t count = 0;
     while(count < memory->bytes_used)
     {
-        //print_binary_8(memory->data[count]);
+        DEBUG(print_binary_8(memory->data[count]))
         for(uint32_t i = 0; i < array_count(instruction_table); ++i)
         {
             if(op_code_match(memory->data[count], &instruction_table[i]))
