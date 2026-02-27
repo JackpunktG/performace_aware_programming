@@ -531,7 +531,7 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst)
     assert(0 && "ERROR - when constructing arithmetic op\n");
 }
 
-void jump_construct(Assembly_Inst* assy, Instruction_Code* inst)
+void cond_jump_construct(Assembly_Inst* assy, Instruction_Code* inst)
 {
     snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%hhd", (int8_t)ffetch(inst, Bits_IP_INC8));
 }
@@ -547,7 +547,7 @@ void mod_rm_effective_address(Assembly_Inst* assy, Instruction_Code* inst)
     switch (mod)
     {
     case REGISTER_MODE:
-        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", (w > 0) ? word_registers[rm] : byte_registers[rm]);
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", (w > 0 || w == -1) ? word_registers[rm] : byte_registers[rm]);
         break;
     case NO_DISPLACEMENT:
         if (rm == 0b110)
@@ -585,6 +585,19 @@ void inc_dec_neg_construct(Assembly_Inst* assy, Instruction_Code* inst)
         snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", word_registers[reg]);
 }
 
+
+void out_in_construct(Assembly_Inst* assy, Instruction_Code* inst)
+{
+    if (ffetch(inst, Bits_W) == 1)
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "ax");
+    else
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "al");
+
+    int32_t data_l = ffetch(inst, Bits_Data_L);
+    if (data_l != -1)
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%hhu", (uint8_t)data_l);
+}
+
 void print_assembly_inst(Assembly_Inst* assy)
 {
     if (strlen(assy->opperant2) == 0)
@@ -598,27 +611,26 @@ void construct_assembly_inst(Instruction_Code* inst)
     Assembly_Inst assy;
     memset(&assy, 0, sizeof(Assembly_Inst));
 
-    // conditional jump instructions
     if (inst->type >= Op_je && inst->type <= Op_jcxz)
-        jump_construct(&assy, inst);
+        cond_jump_construct(&assy, inst);
+    else if (inst->type >= Op_add && inst->type <= Op_test)
+        arithmetic_construct(&assy, inst);
     else if (inst->field[1].usage == Not_Used)
         ; // fast path for only complete 1 byte ops
     else
         switch (inst->type)
         {
+        case Op_out:
+        case Op_in:
+            out_in_construct(&assy, inst);
+            break;
+        case Op_lea:
+        case Op_lds:
+        case Op_les:
+            mod_rm_effective_address(&assy, inst);
+            break;
         case Op_mov:
             mov_construct(&assy, inst);
-            break;
-        case Op_test:
-        case Op_add:
-        case Op_adc:
-        case Op_sub:
-        case Op_sbb:
-        case Op_cmp:
-        case Op_and:
-        case Op_or:
-        case Op_xor:
-            arithmetic_construct(&assy, inst);
             break;
         case Op_neg:
         case Op_dec:
