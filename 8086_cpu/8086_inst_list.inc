@@ -11,6 +11,8 @@
 #define D {Bits_D, 1}
 #define W {Bits_W, 1}
 #define S {Bits_S, 1}
+#define V {Bits_V, 1}
+#define Z {Bits_Z, 1}
 
 
 #define RM {Bits_RM, 3}
@@ -24,11 +26,6 @@
 #define DISP_H {Bits_Disp_H, 8}
 #define DATA_L {Bits_Data_L, 8}
 #define DATA_H {Bits_Data_H, 8}
-
-#define IMP_D(value) {Bits_D, 1, 0, value}
-#define IMP_REG(value) {Bits_REG, 3, 0, value}
-#define IMP_MOD(value) {Bits_MOD, 2, 0, value}
-#define IMP_RM(value) {Bits_RM, 3, 0, value}
 
 INSTRUCTION(mov, {B(100010), D, W, MOD, REG, RM, DISP_L, DISP_H})
 INST(mov, {B(1100011), W, MOD, BL(000), RM, DISP_L, DISP_H, DATA_L, DATA_H})
@@ -74,6 +71,28 @@ INSTRUCTION(neg, {B(1111011), W, MOD, BL(011), RM, DISP_L, DISP_H})
 INSTRUCTION(aaa, {B(00110111)})
 INSTRUCTION(daa, {B(00100111)})
 
+// Compare extended 
+INSTRUCTION(ass, {B(00111111)})
+INSTRUCTION(das, {B(00101111)})
+INSTRUCTION(cbw, {B(10011000)})
+INSTRUCTION(cbd, {B(10011001)})
+INSTRUCTION(aam, {B(11010100), BL(00001010)})
+INSTRUCTION(aad, {B(11010101), BL(00001010)})
+INSTRUCTION(mul, {B(1111011), W, MOD, BL(100), RM, DISP_L, DISP_H})
+INSTRUCTION(imul, {B(1111011), W, MOD, BL(101), RM, DISP_L, DISP_H})
+INSTRUCTION(div, {B(1111011), W, MOD, BL(110), RM, DISP_L, DISP_H})
+INSTRUCTION(idiv, {B(1111011), W, MOD, BL(111), RM, DISP_L, DISP_H})
+
+// Logic
+INSTRUCTION(rol, {B(110100), V, W, MOD, BL(000), RM, DISP_L, DISP_H})
+INSTRUCTION(ror, {B(110100), V, W, MOD, BL(001), RM, DISP_L, DISP_H})
+INSTRUCTION(rcl, {B(110100), V, W, MOD, BL(010), RM, DISP_L, DISP_H})
+INSTRUCTION(rcr, {B(110100), V, W, MOD, BL(011), RM, DISP_L, DISP_H})
+INSTRUCTION(shl, {B(110100), V, W, MOD, BL(100), RM, DISP_L, DISP_H})
+INSTRUCTION(shr, {B(110100), V, W, MOD, BL(101), RM, DISP_L, DISP_H})
+INSTRUCTION(not, {B(1111011), W, MOD, BL(010), RM, DISP_L, DISP_H})
+INSTRUCTION(sar, {B(110100), V, W, MOD, BL(111), RM, DISP_L, DISP_H})
+
 // Input from
 INSTRUCTION(in, {B(1110010), W, DATA_L})
 INST(in, {B(1110110), W})
@@ -88,6 +107,21 @@ INSTRUCTION(lahf, {B(10011111)})
 INSTRUCTION(safh, {B(10011110)})
 INSTRUCTION(pushf, {B(10011100)})
 INSTRUCTION(popf, {B(10011101)})
+
+// string manipulation
+INSTRUCTION(rep, {B(1111001), Z, BL(0000000), W})
+INSTRUCTION(movs, {B(1010010), W})
+INSTRUCTION(cmps, {B(1010011), W})
+INSTRUCTION(stds, {B(1010101), W})
+INSTRUCTION(lods, {B(1010110), W})
+INSTRUCTION(scas, {B(1010111), W})
+
+// Return from call
+INSTRUCTION(ret, {B(11000011)})
+INST(ret, {B(11000010), DATA_L, DATA_H})
+INSTRUCTION(retf, {B(11001011)})
+INST(retf, {B(11001010), DATA_L, DATA_H})
+
 
 // conditional jumps
 INSTRUCTION(je, {B(01110100), IP8})
@@ -118,11 +152,7 @@ INSTRUCTION(jcxz, {B(11100011), IP8})
 #undef D
 #undef S
 #undef W
-
-#undef IMP_D
-#undef IMP_REG
-#undef IMP_MOD
-#undef IMP_RM
+#undef V
 
 #undef RM
 #undef MOD

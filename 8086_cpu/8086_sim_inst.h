@@ -46,11 +46,12 @@ typedef enum : uint8_t
     Bits_D,
     Bits_W,
     Bits_S,
+    Bits_V,
+    Bits_Z,
 
     Bits_MOD,
     Bits_REG,
-    Bits_RM,
-    Bits_SR,
+    Bits_RM, Bits_SR,
 
     Bits_Disp_L,
     Bits_Disp_H,
@@ -77,6 +78,10 @@ char* bits_usage_string(Bits_Usage usage)
         return "D";
     case Bits_W:
         return "W";
+    case Bits_Z:
+        return "Z";
+    case Bits_V:
+        return "V";
     case Bits_S:
         return "S";
     case Bits_MOD:
@@ -570,6 +575,116 @@ static inline void swap_opperants(Assembly_Inst* assy)
     snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", temp);
 }
 
+enum
+{
+    _movs = 0b1010010,
+    _cmps = 0b1010011,
+    _stds = 0b1010101,
+    _lods = 0b1010110,
+    _scas = 0b1010111
+};
+const char* string_manpi[] =
+{"movs", "cmps", "stds", "lods", "scas"};
+
+void string_mani_construct(Assembly_Inst* assy, Instruction_Code* inst)
+{
+    int32_t w = ffetch(inst, Bits_W);
+
+    if (inst->type == Op_rep)
+    {
+        int32_t z = ffetch(inst, Bits_Z);
+        uint8_t i;
+
+        switch(inst->field[2].value)
+        {
+        case _movs:
+            i = 0;
+            break;
+        case _cmps:
+            i = 1;
+            break;
+        case _stds:
+            i = 2;
+            break;
+        case _lods:
+            i = 3;
+            break;
+        case _scas:
+            i = 4;
+            break;
+        default:
+            assert(0 && "ERROR - unknow type after rep op\n");
+        }
+
+        if (i == 1 || i == 4)
+            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", z ? "repe" : "repne");
+        else
+            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", "rep");
+
+        snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s%c", string_manpi[i], w ? 'w' : 'b');
+    }
+    else
+    {
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s%c", instruction_string(inst->type), w ? 'w' : 'b');
+    }
+
+}
+
+enum // for switching on op codes
+{
+    _mul  = 0b100,
+    _imul = 0b101,
+    _div  = 0b110,
+    _idiv = 0b111,
+    _not  = 0b010
+};
+
+void logic_construct(Assembly_Inst* assy, Instruction_Code* inst)
+{
+    mod_rm_effective_address(assy, inst);
+
+    if (ffetch(inst, Bits_MOD) != 0b11)
+    {
+        int32_t w = ffetch(inst, Bits_W);
+        char temp[MAX_SIZE_OF_OPPERANT];
+        snprintf(temp, MAX_SIZE_OF_OPPERANT, "%s", assy->opperant1);
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s %s", w ? "word" : "byte", temp);
+    }
+
+    int32_t v = ffetch(inst, Bits_V);
+    if (v == -1)
+    {
+        uint8_t bl = (uint8_t)ffetch(inst, Bits_Literal);
+        switch(bl)
+        {
+        case _mul:
+            inst->type = Op_mul;
+            break;
+        case _imul:
+            inst->type = Op_imul;
+            break;
+        case _div:
+            inst->type = Op_div;
+            break;
+        case _idiv:
+            inst->type = Op_idiv;
+            break;
+        case _not:
+            inst->type = Op_not;
+            break;
+        default:
+            assert(0);
+        }
+    }
+    else
+    {
+        snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", v ? "cl" : "1");
+        // changing the op_code to the proper mnemonic
+        inst->type = (Operation_Type)(inst->type + ffetch(inst, Bits_Literal));
+    }
+
+}
+
 void inc_dec_neg_construct(Assembly_Inst* assy, Instruction_Code* inst)
 {
     int32_t reg = ffetch(inst, Bits_REG);
@@ -600,7 +715,11 @@ void out_in_construct(Assembly_Inst* assy, Instruction_Code* inst)
 
 void print_assembly_inst(Assembly_Inst* assy)
 {
-    if (strlen(assy->opperant2) == 0)
+    if (assy->mnemonic >= Op_rep && assy->mnemonic <= Op_scas)
+        printf("%s %s\n", assy->opperant1, strlen(assy->opperant2) == 0 ? "" : assy->opperant2);
+    else if (strlen(assy->opperant1) == 0 && strlen(assy->opperant2) == 0)
+        printf("%s\n", instruction_string(assy->mnemonic));
+    else if (strlen(assy->opperant2) == 0)
         printf("%s %s\n", instruction_string(assy->mnemonic), assy->opperant1);
     else
         printf("%s %s, %s\n", instruction_string(assy->mnemonic), assy->opperant1, assy->opperant2);
@@ -615,8 +734,12 @@ void construct_assembly_inst(Instruction_Code* inst)
         cond_jump_construct(&assy, inst);
     else if (inst->type >= Op_add && inst->type <= Op_test)
         arithmetic_construct(&assy, inst);
-    else if (inst->field[1].usage == Not_Used)
-        ; // fast path for only complete 1 byte ops
+    else if (inst->type >= Op_mul && inst->type <= Op_sar)
+        logic_construct(&assy, inst);
+    else if (inst->type >= Op_rep && inst->type <= Op_scas)
+        string_mani_construct(&assy, inst);
+    else if (inst->field[1].usage == Not_Used || inst->field[1].usage == Bits_Literal)
+        ; // fast path for only complete 1 byte ops - or hardcoded op
     else
         switch (inst->type)
         {
@@ -636,6 +759,10 @@ void construct_assembly_inst(Instruction_Code* inst)
         case Op_dec:
         case Op_inc:
             inc_dec_neg_construct(&assy, inst);
+            break;
+        case Op_ret:
+        case Op_retf:
+            snprintf(assy.opperant1, MAX_SIZE_OF_OPPERANT, "%hu", byte_calc(inst->field[1].value, inst->field[2].value));
             break;
         default:
             assert(0);
@@ -709,7 +836,7 @@ int decode_instruction(Memory* memory, const uint32_t memory_index, const uint32
         uint8_t bitmask = 0xFF;
         bitmask         >>= offset;
 
-        if (offset + inst.field[field_index].count != 8)
+        if (offset + inst.field[field_index].count != 8 && bitmask != 0xFF)
             bitmask &= ~((1<<(inst.field[field_index].count)) -1);
         inst.field[field_index].value = (read_byte & bitmask) >> (8 - (inst.field[field_index].count + offset));
 
@@ -720,11 +847,20 @@ int decode_instruction(Memory* memory, const uint32_t memory_index, const uint32
         switch (inst.field[field_index].usage)
         {
         case Bits_Literal:
+            if (inst.type == Op_test && inst.field[field_index].value != 0b000)
+            {
+                inst.type = Op_imul;
+                unset_bits_field(&inst, Bits_Data_L);
+                unset_bits_field(&inst, Bits_Data_H);
+            }
             break;
-
         case Bits_D:
             break;
         case Bits_W:
+            break;
+        case Bits_V:
+            break;
+        case Bits_Z:
             break;
         case Bits_S:
             if (inst.type != Op_cmp && inst.field[field_index].value)
