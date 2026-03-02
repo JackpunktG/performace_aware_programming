@@ -182,12 +182,13 @@ void free_memory(Memory* memory)
     memory->bytes_used = 0;
 }
 
+#define FIELD_NOT_SET -1
 int ffetch(Instruction_Code* inst, Bits_Usage field)
 {
     for (uint8_t i = 0; i < array_count(inst->field); ++i)
         if (inst->field[i].usage == field)
             return inst->field[i].value;
-    return -1;
+    return FIELD_NOT_SET;
 }
 
 const char* byte_registers[] =
@@ -248,8 +249,95 @@ typedef struct
     Operation_Type mnemonic;
     char opperant1[MAX_SIZE_OF_OPPERANT];
     char opperant2[MAX_SIZE_OF_OPPERANT];
-    uint32_t flags;
+    bool printable;
 } Assembly_Inst;
+
+typedef enum
+{
+    SEGMENT_OVERRIDE_ES,
+    SEGMENT_OVERRIDE_SC,
+    SEGMENT_OVERRIDE_SS,
+    SEGMENT_OVERRIDE_DS
+} Segment_Override;
+
+typedef struct
+{
+    int8_t segment_override;
+} Decode_Unit;
+
+Decode_Unit* decode_unit_init()
+{
+    Decode_Unit* d_unit = (Decode_Unit*)malloc(sizeof(Decode_Unit));
+    d_unit->segment_override = -1;
+    return d_unit;
+}
+
+bool seg_override(Decode_Unit* d_unit)
+{
+    return (d_unit->segment_override != -1);
+}
+
+void segment_override_flag(Assembly_Inst* assy, Instruction_Code* inst, Decode_Unit* d_unit)
+{
+    assy->printable = false;
+
+    assert(!seg_override(d_unit));
+
+    switch (inst->type)
+    {
+    case Op_es:
+        d_unit->segment_override = SEGMENT_OVERRIDE_ES;
+        return;
+    case Op_sc:
+        d_unit->segment_override = SEGMENT_OVERRIDE_SC;
+        return;
+    case Op_ss:
+        d_unit->segment_override = SEGMENT_OVERRIDE_SS;
+        return;
+    case Op_ds:
+        d_unit->segment_override = SEGMENT_OVERRIDE_DS;
+        return;
+    default:
+        assert(0 && "ERROR - not a segment override instruction\n");
+    }
+}
+
+
+bool opperant_check(const char* string, const char needle)
+{
+    if (strlen(string) == 0)
+        return false;
+
+    uint32_t index = 0;
+    while (string[index] != '\0')
+    {
+        if (string[index++] == needle)
+            return true;
+    }
+    return false;
+}
+
+void segment_override_set(Assembly_Inst* assy, Decode_Unit* d_unit)
+{
+    assert(d_unit->segment_override >= SEGMENT_OVERRIDE_ES && d_unit->segment_override <= SEGMENT_OVERRIDE_DS);
+
+    if (opperant_check(assy->opperant1, '['))
+    {
+        char op1[MAX_SIZE_OF_OPPERANT];
+        snprintf(op1, MAX_SIZE_OF_OPPERANT, "%s", assy->opperant1);
+
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "[%s:%s", segment_registers[d_unit->segment_override], op1 +1);
+    }
+    else if(opperant_check(assy->opperant2, '['))
+    {
+        char op2[MAX_SIZE_OF_OPPERANT];
+        snprintf(op2, MAX_SIZE_OF_OPPERANT, "%s", assy->opperant2);
+
+        snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "[%s:%s", segment_registers[d_unit->segment_override], op2 +1);
+    }
+
+    d_unit->segment_override = -1;
+}
 
 enum Construction_Flags
 {
@@ -288,16 +376,43 @@ const char* get_effective_address(uint8_t rm, uint8_t mod, int32_t disp, char* b
 
 static inline uint16_t byte_calc(int32_t byte_l, int32_t byte_h)
 {
-    return (uint16_t)(byte_l | ((byte_h != -1 ? byte_h : 0) << 8));
+    return (uint16_t)(byte_l | ((byte_h != FIELD_NOT_SET ? byte_h : 0) << 8));
 }
 
 static inline short disp_calc(int32_t disp_l, int32_t disp_h)
 {
-    if (disp_h == -1)
+    if (disp_h == FIELD_NOT_SET)
         return (short)(disp_l | (((int8_t)disp_l < 0 ? 0xFF : 0) << 8));
     else
         return (short)(disp_l | (disp_h  << 8));
 }
+
+void mod_rm_effective_address(Assembly_Inst* assy, Instruction_Code* inst)
+{
+    int32_t w      = ffetch(inst, Bits_W);
+    int32_t mod    = ffetch(inst, Bits_MOD);
+    int32_t rm     = ffetch(inst, Bits_RM);
+    int32_t disp_l = ffetch(inst, Bits_Disp_L);
+    int32_t disp_h = ffetch(inst, Bits_Disp_H);
+
+    switch (mod)
+    {
+    case REGISTER_MODE:
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", (w > 0 || w == FIELD_NOT_SET) ? word_registers[rm] : byte_registers[rm]);
+        break;
+    case NO_DISPLACEMENT:
+        if (rm == 0b110)
+            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "[%hu]", byte_calc(disp_l, disp_h));
+        else
+            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "[%s]", effective_addresses[rm]);
+        break;
+    case _8_BIT_DISPLACEMENT:
+    case _16_BIT_DISPLACEMENT:
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "[%s + %hd]", effective_addresses[rm], disp_calc(disp_l, disp_h));
+        break;
+    }
+}
+
 void mov_construct(Assembly_Inst* assy, Instruction_Code* inst)
 {
     int32_t d      = ffetch(inst, Bits_D);
@@ -312,7 +427,7 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst)
     int32_t disp_h = ffetch(inst, Bits_Disp_H);
 
     // segment register
-    if (sr != -1)
+    if (sr != FIELD_NOT_SET)
     {
         uint8_t op_val     = (uint8_t)ffetch(inst, Bits_OP);
         const char* seg    = segment_registers[sr];
@@ -354,7 +469,7 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst)
     }
 
     // immediate to register
-    if (data_l != -1 && mod == -1)
+    if (data_l != FIELD_NOT_SET && mod == FIELD_NOT_SET)
     {
         const char* reg_name = w ? word_registers[reg] : byte_registers[reg];
         snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", reg_name);
@@ -363,7 +478,7 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst)
     }
 
     // memory to/from accumulator
-    if (disp_l != -1 && mod == -1)
+    if (disp_l != FIELD_NOT_SET && mod == FIELD_NOT_SET)
     {
         uint16_t addr    = byte_calc(disp_l, disp_h);
         const char* acc  = (w > 0) ? "ax" : "al";
@@ -383,7 +498,7 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst)
     }
 
     // register/memory encoding
-    if (mod != -1 && reg != -1 && rm != -1)
+    if (mod != FIELD_NOT_SET && reg != FIELD_NOT_SET && rm != FIELD_NOT_SET)
     {
         char reg_name[MAX_SIZE_OF_OPPERANT];
         char effective_address[MAX_SIZE_OF_OPPERANT];
@@ -426,10 +541,20 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst)
         }
         return;
     }
+
+    //immediate to reg/mem
+    if (mod != FIELD_NOT_SET && data_l != FIELD_NOT_SET)
+    {
+        mod_rm_effective_address(assy, inst);
+
+        snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s %hu", w ? "word" : "byte", byte_calc(data_l, data_h));
+
+        return;
+    }
     assert(0 && "ERROR - when constructing mov\n");
 }
 
-void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst)
+void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst, Decode_Unit* d_unit)
 {
     int32_t d      = ffetch(inst, Bits_D);
     int32_t w      = ffetch(inst, Bits_W);
@@ -443,7 +568,7 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst)
     int32_t disp_h = ffetch(inst, Bits_Disp_H);
 
     // immediate to accumulator
-    if (mod == -1 && reg == -1 && rm == -1)
+    if (mod == FIELD_NOT_SET && reg == FIELD_NOT_SET && rm == FIELD_NOT_SET)
     {
         const char* acc = (w) ? "ax" : "al";
         snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", acc);
@@ -453,7 +578,7 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst)
 
 
     // Reg/Mem with register to either
-    if (d != -1)
+    if (d != FIELD_NOT_SET)
     {
         char reg_name[MAX_SIZE_OF_OPPERANT];
         char effective_address[MAX_SIZE_OF_OPPERANT];
@@ -497,7 +622,7 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst)
     }
 
     // immediate to register/memory
-    if (ffetch(inst, Bits_Literal) != -1)
+    if (ffetch(inst, Bits_Literal) != FIELD_NOT_SET)
     {
         char addr_loc[MAX_SIZE_OF_OPPERANT];
 
@@ -541,31 +666,7 @@ void cond_jump_construct(Assembly_Inst* assy, Instruction_Code* inst)
     snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%hhd", (int8_t)ffetch(inst, Bits_IP_INC8));
 }
 
-void mod_rm_effective_address(Assembly_Inst* assy, Instruction_Code* inst)
-{
-    int32_t w      = ffetch(inst, Bits_W);
-    int32_t mod    = ffetch(inst, Bits_MOD);
-    int32_t rm     = ffetch(inst, Bits_RM);
-    int32_t disp_l = ffetch(inst, Bits_Disp_L);
-    int32_t disp_h = ffetch(inst, Bits_Disp_H);
 
-    switch (mod)
-    {
-    case REGISTER_MODE:
-        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", (w > 0 || w == -1) ? word_registers[rm] : byte_registers[rm]);
-        break;
-    case NO_DISPLACEMENT:
-        if (rm == 0b110)
-            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "[%hu]", byte_calc(disp_l, disp_h));
-        else
-            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "[%s]", effective_addresses[rm]);
-        break;
-    case _8_BIT_DISPLACEMENT:
-    case _16_BIT_DISPLACEMENT:
-        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "[%s + %hd]", effective_addresses[rm], disp_calc(disp_l, disp_h));
-        break;
-    }
-}
 
 static inline void swap_opperants(Assembly_Inst* assy)
 {
@@ -636,7 +737,8 @@ enum // for switching on op codes
     _imul = 0b101,
     _div  = 0b110,
     _idiv = 0b111,
-    _not  = 0b010
+    _not  = 0b010,
+    _neg  = 0b011
 };
 
 void logic_construct(Assembly_Inst* assy, Instruction_Code* inst)
@@ -648,11 +750,11 @@ void logic_construct(Assembly_Inst* assy, Instruction_Code* inst)
         int32_t w = ffetch(inst, Bits_W);
         char temp[MAX_SIZE_OF_OPPERANT];
         snprintf(temp, MAX_SIZE_OF_OPPERANT, "%s", assy->opperant1);
-        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s %s", w ? "word" : "byte", temp);
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s %.26s", w ? "word" : "byte", temp);
     }
 
     int32_t v = ffetch(inst, Bits_V);
-    if (v == -1)
+    if (v == FIELD_NOT_SET)
     {
         uint8_t bl = (uint8_t)ffetch(inst, Bits_Literal);
         switch(bl)
@@ -672,6 +774,9 @@ void logic_construct(Assembly_Inst* assy, Instruction_Code* inst)
         case _not:
             inst->type = Op_not;
             break;
+        case _neg:
+            inst->type = Op_neg;
+            break;
         default:
             assert(0);
         }
@@ -689,7 +794,7 @@ void inc_dec_neg_construct(Assembly_Inst* assy, Instruction_Code* inst)
 {
     int32_t reg = ffetch(inst, Bits_REG);
 
-    if (reg == -1)
+    if (reg == FIELD_NOT_SET)
     {
         mod_rm_effective_address(assy, inst);
         // changing the op_code to the proper mnemonic
@@ -709,8 +814,93 @@ void out_in_construct(Assembly_Inst* assy, Instruction_Code* inst)
         snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "al");
 
     int32_t data_l = ffetch(inst, Bits_Data_L);
-    if (data_l != -1)
+    if (data_l != FIELD_NOT_SET)
         snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%hhu", (uint8_t)data_l);
+}
+
+void call_jump_construct(Assembly_Inst* assy, Instruction_Code* inst)
+{
+    int32_t bl       = ffetch(inst, Bits_Literal);
+    int32_t disp_l   = ffetch(inst, Bits_Disp_L);
+    int32_t disp_h   = ffetch(inst, Bits_Disp_H);
+    int32_t offset_l = ffetch(inst, Bits_Data_L);
+    int32_t offset_h = ffetch(inst, Bits_Data_H);
+
+    // direct memory call / jump
+    if (offset_l != FIELD_NOT_SET && offset_h != FIELD_NOT_SET)
+    {
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%hd:%hd", byte_calc(offset_l, offset_h), byte_calc(disp_l, disp_h));
+    }
+    else if (bl == FIELD_NOT_SET)
+    {
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "$+(%hd)", (short)((disp_h == FIELD_NOT_SET ? 2 : 3) + disp_calc(disp_l, disp_h)));
+
+    }
+    else
+    {
+        mod_rm_effective_address(assy, inst);
+        char tmp[MAX_SIZE_OF_OPPERANT];
+        snprintf(tmp, MAX_SIZE_OF_OPPERANT, "%s", assy->opperant1);
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s %.27s", bl == 0b011 || bl == 0b101 ? "far" : "word", tmp);
+
+
+        // as inc / dec share the same op code
+        if (bl == 0b110)
+            inst->type = Op_push;
+        else if (bl == 0b001)
+            inst->type = Op_dec;
+        else if (bl == 0b000)
+            inst->type = Op_inc;
+        else if (bl > 0b11)
+            inst->type = (Operation_Type)(inst->type +1);
+    }
+}
+
+void xchg_construct(Assembly_Inst* assy, Instruction_Code* inst)
+{
+    // register with accumulator
+    if (inst->field[0].count == 5)
+    {
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", "ax");
+        snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", word_registers[ffetch(inst, Bits_REG)]);
+    }
+    else
+    {
+        mod_rm_effective_address(assy, inst);
+        snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", word_registers[ffetch(inst, Bits_REG)]);
+
+        // swap opperants for register mod
+        if (ffetch(inst, Bits_MOD) == 0b11)
+            swap_opperants(assy);
+    }
+}
+
+void pop_push_construct(Assembly_Inst* assy, Instruction_Code* inst)
+{
+    int32_t sr  = ffetch(inst, Bits_SR);
+    int32_t reg = ffetch(inst, Bits_REG);
+
+    // segment register
+    if (sr != FIELD_NOT_SET)
+    {
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", segment_registers[sr]);
+
+        if (ffetch(inst, Bits_Literal) == 0b111)
+            inst->type = Op_pop;
+    }
+    // register
+    else if (reg != FIELD_NOT_SET)
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", word_registers[reg]);
+
+    // memory
+    else
+    {
+        mod_rm_effective_address(assy, inst);
+
+        char tmp[MAX_SIZE_OF_OPPERANT];
+        snprintf(tmp, MAX_SIZE_OF_OPPERANT, "%s", assy->opperant1);
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "word %.27s", tmp);
+    }
 }
 
 void print_assembly_inst(Assembly_Inst* assy)
@@ -725,27 +915,37 @@ void print_assembly_inst(Assembly_Inst* assy)
         printf("%s %s, %s\n", instruction_string(assy->mnemonic), assy->opperant1, assy->opperant2);
 }
 
-void construct_assembly_inst(Instruction_Code* inst)
+void construct_assembly_inst(Instruction_Code* inst, Decode_Unit* d_unit)
 {
     Assembly_Inst assy;
     memset(&assy, 0, sizeof(Assembly_Inst));
+    assy.printable = true;
 
     if (inst->type >= Op_je && inst->type <= Op_jcxz)
         cond_jump_construct(&assy, inst);
     else if (inst->type >= Op_add && inst->type <= Op_test)
-        arithmetic_construct(&assy, inst);
+        arithmetic_construct(&assy, inst, d_unit);
     else if (inst->type >= Op_mul && inst->type <= Op_sar)
         logic_construct(&assy, inst);
     else if (inst->type >= Op_rep && inst->type <= Op_scas)
         string_mani_construct(&assy, inst);
+    else if (inst->type >= Op_es && inst->type <= Op_ds)
+        segment_override_flag(&assy, inst, d_unit);
     else if (inst->field[1].usage == Not_Used || inst->field[1].usage == Bits_Literal)
         ; // fast path for only complete 1 byte ops - or hardcoded op
     else
         switch (inst->type)
         {
+        case Op_pop:
+        case Op_push:
+            pop_push_construct(&assy, inst);
+            break;
         case Op_out:
         case Op_in:
             out_in_construct(&assy, inst);
+            break;
+        case Op_xchg:
+            xchg_construct(&assy, inst);
             break;
         case Op_lea:
         case Op_lds:
@@ -755,7 +955,6 @@ void construct_assembly_inst(Instruction_Code* inst)
         case Op_mov:
             mov_construct(&assy, inst);
             break;
-        case Op_neg:
         case Op_dec:
         case Op_inc:
             inc_dec_neg_construct(&assy, inst);
@@ -764,13 +963,27 @@ void construct_assembly_inst(Instruction_Code* inst)
         case Op_retf:
             snprintf(assy.opperant1, MAX_SIZE_OF_OPPERANT, "%hu", byte_calc(inst->field[1].value, inst->field[2].value));
             break;
+        case Op_jmp:
+        case Op_call:
+            call_jump_construct(&assy, inst);
+            break;
+        case Op_int:
+            if (ffetch(inst, Bits_Data_L) != -1)
+                snprintf(assy.opperant1, MAX_SIZE_OF_OPPERANT, "%hhu", (uint8_t)ffetch(inst, Bits_Data_L));
+            break;
         default:
             assert(0);
         }
 
     assy.mnemonic = inst->type;
 
-    print_assembly_inst(&assy);
+
+    if (assy.printable)
+    {
+        if (seg_override(d_unit)) // Segmentation override
+            segment_override_set(&assy, d_unit);
+        print_assembly_inst(&assy);
+    }
 }
 
 
@@ -802,7 +1015,7 @@ void unset_bits_field(Instruction_Code* inst, Bits_Usage field)
     printf("WARNING - field not found to unset\n");
 }
 
-int decode_instruction(Memory* memory, const uint32_t memory_index, const uint32_t inst_index)
+int decode_instruction(Memory* memory, Decode_Unit* d_unit, const uint32_t memory_index, const uint32_t inst_index)
 {
     // copying the "templete" instruction
     Instruction_Code inst = instruction_table[inst_index];
@@ -921,7 +1134,7 @@ int decode_instruction(Memory* memory, const uint32_t memory_index, const uint32
     }
     DEBUG(debug_print_Assembly_Inst(&inst))
 
-    construct_assembly_inst(&inst);
+    construct_assembly_inst(&inst, d_unit);
     return byte_number;
 }
 
@@ -934,7 +1147,10 @@ bool op_code_match(const uint8_t byte, Instruction_Code* inst)
 
 void decode_instruction_stream(Memory* memory)
 {
-    uint32_t count = 0;
+    Decode_Unit* d_unit = decode_unit_init();
+    uint32_t count      = 0;
+
+
     while(count < memory->bytes_used)
     {
         DEBUG(print_binary_8(memory->data[count]))
@@ -942,7 +1158,7 @@ void decode_instruction_stream(Memory* memory)
         {
             if(op_code_match(memory->data[count], &instruction_table[i]))
             {
-                count += decode_instruction(memory, count, i);
+                count += decode_instruction(memory, d_unit, count, i);
                 break;
             }
             assert((i +1) != array_count(instruction_table) && "ERROR - unknown Op code\n");

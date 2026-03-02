@@ -12,8 +12,11 @@ int main(int argc, char* argv[])
     //print_inst_table();
     Memory memory = {0};
 
+    //print_inst_table();
+
     read_file(&memory, argv[1]);
 
+    printf("; Disassembly of %s\nbits 16\n\n", argv[1]);
     decode_instruction_stream(&memory);
 
     free_memory(&memory);
