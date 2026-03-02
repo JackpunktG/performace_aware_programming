@@ -16,6 +16,34 @@
 #define DEBUG(debug_print)
 #endif
 
+
+typedef struct Memory Memory;
+
+typedef struct Assembly_Inst Assembly_Inst;
+void print_inst_table();
+void decode_instruction_stream(Memory* memory, uint32_t flags);
+
+typedef struct Registers
+{
+    uint16_t ax;
+    uint16_t bx;
+    uint16_t cx;
+    uint16_t dx;
+    uint16_t sp;
+    uint16_t bp;
+    uint16_t si;
+    uint16_t di;
+    uint16_t es;
+    uint16_t cs;
+    uint16_t ss;
+    uint16_t ds;
+} Registers;
+Registers* registers_init();
+void print_registers(Registers* r);
+void print_register_change(Registers* old_state, Registers* new_state);
+/*===================================================
+  Decoding unit
+  =================================================*/
 typedef enum
 {
 #define INSTRUCTION(Mnemonic, ...) Op_##Mnemonic,
@@ -155,7 +183,7 @@ void print_inst_table()
 }
 
 #define MEMORY_SIZE 1024*1024
-typedef struct
+typedef struct Memory
 {
     uint8_t* data;
     uint32_t bytes_used;
@@ -189,6 +217,74 @@ int ffetch(Instruction_Code* inst, Bits_Usage field)
         if (inst->field[i].usage == field)
             return inst->field[i].value;
     return FIELD_NOT_SET;
+}
+
+typedef enum : uint16_t
+{
+    NO_LOCATION = 0x0000,
+
+    AX = 0xFFF0,
+    CX = 0xFFF1,
+    DX = 0xFFF2,
+    BX = 0xFFF3,
+    SP = 0xFFF4,
+    BP = 0xFFF5,
+    SI = 0xFFF6,
+    DI = 0xFFF7,
+    AL = 0xFF0F,
+    CL = 0xFF1F,
+    DL = 0xFF2F,
+    BL = 0xFF3F,
+    AH = 0xFF4F,
+    CH = 0xFF5F,
+    DH = 0xFF6F,
+    BH = 0xFF7F,
+    ES = 0xF0FF,
+    CS = 0xF1FF,
+    SS = 0xF2FF,
+    DS = 0xF3FF,
+} Register_Location;
+
+enum
+{
+    IMMEDIATE = (1<<0),
+    REGISTER = (1<<1),
+    MEMORY = (1<<2)
+};
+
+
+typedef enum
+{
+    WORD_REGISTERS,
+    BYTE_REGISTERS,
+    SEGMENT_REGISTERS,
+    EFFECTIVE_ADDRESSES
+} Location_Type;
+
+Register_Location location_exec(const Location_Type type, const uint8_t value)
+{
+    uint16_t location = 0xFFFF;
+
+    switch (type)
+    {
+    case WORD_REGISTERS:
+        location &= ~(0x000F);
+        location |= (value);
+        break;
+    case BYTE_REGISTERS:
+        location &= ~(0x00F0);
+        location |= (value << 4);
+        break;
+    case SEGMENT_REGISTERS:
+        location &= ~(0x0F00);
+        location |= (value << 8);
+        break;
+    case EFFECTIVE_ADDRESSES:
+        location &= ~(0xF000);
+        location |= (value << 12);
+        break;
+    }
+    return (Register_Location)location;
 }
 
 const char* byte_registers[] =
@@ -244,7 +340,7 @@ typedef enum : uint8_t
 } Mod_Field;
 
 #define MAX_SIZE_OF_OPPERANT 32
-typedef struct
+typedef struct Assembly_Inst
 {
     Operation_Type mnemonic;
     char opperant1[MAX_SIZE_OF_OPPERANT];
@@ -303,7 +399,7 @@ void segment_override_flag(Assembly_Inst* assy, Instruction_Code* inst, Decode_U
 }
 
 
-bool opperant_check(const char* string, const char needle)
+bool operant_check(const char* string, const char needle)
 {
     if (strlen(string) == 0)
         return false;
@@ -321,14 +417,14 @@ void segment_override_set(Assembly_Inst* assy, Decode_Unit* d_unit)
 {
     assert(d_unit->segment_override >= SEGMENT_OVERRIDE_ES && d_unit->segment_override <= SEGMENT_OVERRIDE_DS);
 
-    if (opperant_check(assy->opperant1, '['))
+    if (operant_check(assy->opperant1, '['))
     {
         char op1[MAX_SIZE_OF_OPPERANT];
         snprintf(op1, MAX_SIZE_OF_OPPERANT, "%s", assy->opperant1);
 
         snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "[%s:%s", segment_registers[d_unit->segment_override], op1 +1);
     }
-    else if(opperant_check(assy->opperant2, '['))
+    else if(operant_check(assy->opperant2, '['))
     {
         char op2[MAX_SIZE_OF_OPPERANT];
         snprintf(op2, MAX_SIZE_OF_OPPERANT, "%s", assy->opperant2);
@@ -413,7 +509,8 @@ void mod_rm_effective_address(Assembly_Inst* assy, Instruction_Code* inst)
     }
 }
 
-void mov_construct(Assembly_Inst* assy, Instruction_Code* inst)
+void mov_exec(Registers* exec, Register_Location dest, Register_Location src, const uint16_t value, uint32_t flags);
+void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, Registers* exec)
 {
     int32_t d      = ffetch(inst, Bits_D);
     int32_t w      = ffetch(inst, Bits_W);
@@ -474,6 +571,12 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst)
         const char* reg_name = w ? word_registers[reg] : byte_registers[reg];
         snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", reg_name);
         snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s %hu", w ? "word" : "byte", byte_calc(data_l, data_h));
+
+        if (exec != NULL)
+        {
+            mov_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, (uint8_t)reg), NO_LOCATION, byte_calc(data_l, data_h), IMMEDIATE);
+        }
+
         return;
     }
 
@@ -533,11 +636,19 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst)
         {
             snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", reg_name);
             snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
+            if (exec != NULL)
+            {
+                mov_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)rm : (uint8_t)reg), location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)reg : (uint8_t)rm), byte_calc(data_l, data_h), REGISTER);
+            }
         }
         else
         {
             snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
             snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", reg_name);
+            if (exec != NULL)
+            {
+                mov_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)reg : (uint8_t)rm), location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)rm : (uint8_t)reg), byte_calc(data_l, data_h), REGISTER);
+            }
         }
         return;
     }
@@ -899,27 +1010,32 @@ void pop_push_construct(Assembly_Inst* assy, Instruction_Code* inst)
 
         char tmp[MAX_SIZE_OF_OPPERANT];
         snprintf(tmp, MAX_SIZE_OF_OPPERANT, "%s", assy->opperant1);
-        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "word %.27s", tmp);
+        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "word %.26s", tmp);
     }
 }
 
 void print_assembly_inst(Assembly_Inst* assy)
 {
     if (assy->mnemonic >= Op_rep && assy->mnemonic <= Op_scas)
-        printf("%s %s\n", assy->opperant1, strlen(assy->opperant2) == 0 ? "" : assy->opperant2);
+        printf("%s %s", assy->opperant1, strlen(assy->opperant2) == 0 ? "" : assy->opperant2);
     else if (strlen(assy->opperant1) == 0 && strlen(assy->opperant2) == 0)
-        printf("%s\n", instruction_string(assy->mnemonic));
+        printf("%s", instruction_string(assy->mnemonic));
     else if (strlen(assy->opperant2) == 0)
-        printf("%s %s\n", instruction_string(assy->mnemonic), assy->opperant1);
+        printf("%s %s", instruction_string(assy->mnemonic), assy->opperant1);
     else
-        printf("%s %s, %s\n", instruction_string(assy->mnemonic), assy->opperant1, assy->opperant2);
+        printf("%s %s, %s", instruction_string(assy->mnemonic), assy->opperant1, assy->opperant2);
 }
 
-void construct_assembly_inst(Instruction_Code* inst, Decode_Unit* d_unit)
+void construct_assembly_inst(Instruction_Code* inst, Decode_Unit* d_unit, Registers* exec)
 {
     Assembly_Inst assy;
     memset(&assy, 0, sizeof(Assembly_Inst));
     assy.printable = true;
+
+    Registers old_state = {0};
+    if (exec != NULL)
+        memcpy(&old_state, exec, sizeof(Registers));
+
 
     if (inst->type >= Op_je && inst->type <= Op_jcxz)
         cond_jump_construct(&assy, inst);
@@ -953,7 +1069,7 @@ void construct_assembly_inst(Instruction_Code* inst, Decode_Unit* d_unit)
             mod_rm_effective_address(&assy, inst);
             break;
         case Op_mov:
-            mov_construct(&assy, inst);
+            mov_construct(&assy, inst, exec);
             break;
         case Op_dec:
         case Op_inc:
@@ -982,7 +1098,11 @@ void construct_assembly_inst(Instruction_Code* inst, Decode_Unit* d_unit)
     {
         if (seg_override(d_unit)) // Segmentation override
             segment_override_set(&assy, d_unit);
+
         print_assembly_inst(&assy);
+        if (exec != NULL)
+            print_register_change(&old_state, exec);
+        printf("\n");
     }
 }
 
@@ -1015,7 +1135,8 @@ void unset_bits_field(Instruction_Code* inst, Bits_Usage field)
     printf("WARNING - field not found to unset\n");
 }
 
-int decode_instruction(Memory* memory, Decode_Unit* d_unit, const uint32_t memory_index, const uint32_t inst_index)
+
+int decode_instruction(Memory* memory, Decode_Unit* d_unit, const uint32_t memory_index, const uint32_t inst_index, Registers* exec)
 {
     // copying the "templete" instruction
     Instruction_Code inst = instruction_table[inst_index];
@@ -1134,7 +1255,7 @@ int decode_instruction(Memory* memory, Decode_Unit* d_unit, const uint32_t memor
     }
     DEBUG(debug_print_Assembly_Inst(&inst))
 
-    construct_assembly_inst(&inst, d_unit);
+    construct_assembly_inst(&inst, d_unit, exec);
     return byte_number;
 }
 
@@ -1145,11 +1266,16 @@ bool op_code_match(const uint8_t byte, Instruction_Code* inst)
     return op_code_test == inst->field[0].value;
 }
 
-void decode_instruction_stream(Memory* memory)
+
+#define EXECUTION_OF_INSTRUCTION (1<<0)
+void decode_instruction_stream(Memory* memory, uint32_t flags)
 {
     Decode_Unit* d_unit = decode_unit_init();
     uint32_t count      = 0;
 
+    Registers* exec = NULL;
+    if (flags & EXECUTION_OF_INSTRUCTION)
+        exec = registers_init();
 
     while(count < memory->bytes_used)
     {
@@ -1158,10 +1284,391 @@ void decode_instruction_stream(Memory* memory)
         {
             if(op_code_match(memory->data[count], &instruction_table[i]))
             {
-                count += decode_instruction(memory, d_unit, count, i);
+                count += decode_instruction(memory, d_unit, count, i, exec);
                 break;
             }
             assert((i +1) != array_count(instruction_table) && "ERROR - unknown Op code\n");
         }
+    }
+
+    if (flags & EXECUTION_OF_INSTRUCTION)
+    {
+        printf("\nFinal state of registers");
+        print_registers(exec);
+    }
+
+    free(d_unit);
+    if (exec != NULL)
+        free(exec);
+}
+
+
+/*==========================================
+  Simulation Unit
+  ========================================*/
+
+Registers* registers_init()
+{
+    Registers* r = (Registers*)malloc(sizeof(Registers));
+    memset(r, 0, sizeof(Registers));
+    printf("\nInitial state of registers");
+    print_registers(r);
+    return r;
+}
+
+const char* register_string(uint8_t i)
+{
+    switch(i)
+    {
+    case 0:
+        return "ax";
+    case 1:
+        return "cx";
+    case 2:
+        return "dx";
+    case 3:
+        return "bx";
+    case 4:
+        return "sp";
+    case 5:
+        return "bp";
+    case 6:
+        return "si";
+    case 7:
+        return "di";
+    case 8:
+        return "es";
+    case 9:
+        return "cs";
+    case 10:
+        return "ss";
+    case 11:
+        return "ds";
+    default:
+        assert(0);
+    }
+}
+
+
+
+void print_register_change(Registers* old_state, Registers* new_state)
+{
+    bool change = false;
+
+    uint16_t* r_old = (uint16_t*)old_state;
+    uint16_t* r_new = (uint16_t*)new_state;
+
+    printf("   ;");
+    for (uint8_t i = 0; i < sizeof(Registers) / sizeof(uint16_t); ++i)
+    {
+        if (r_old[i] != r_new[i])
+        {
+            if (change)
+                printf("  | ");
+            printf("(%s) %04hx -> %04hx", register_string(i), r_old[i], r_new[i]);
+            change = true;
+        }
+    }
+
+    if (!change)
+        printf("No register changes");
+}
+void print_registers(Registers* r)
+{
+    printf("\nHexadecimal register values:\n");
+    printf("\t\t|ax: %04hx|\n", r->ax);
+    printf("\t\t|bx: %04hx|\n", r->bx);
+    printf("\t\t|cx: %04hx|\n", r->cx);
+    printf("\t\t|dx: %04hx|\n", r->dx);
+    printf("\t\t|sp: %04hx|\n", r->sp);
+    printf("\t\t|bp: %04hx|\n", r->bp);
+    printf("\t\t|si: %04hx|\n", r->si);
+    printf("\t\t|di: %04hx|\n", r->di);
+    printf("\t\t|es: %04hx|\n", r->es);
+    printf("\t\t|cs: %04hx|\n", r->cs);
+    printf("\t\t|ss: %04hx|\n", r->ss);
+    printf("\t\t|ds: %04hx|\n\n", r->ds);
+}
+
+
+// typedef enum : uint16_t
+// {
+//     AX = 0xFFF0,
+//     CX = 0xFFF1,
+//     DX = 0xFFF2,
+//     BX = 0xFFF3,
+//     SP = 0xFFF4,
+//     BP = 0xFFF5,
+//     SI = 0xFFF6,
+//     DI = 0xFFF7,
+//     AL = 0xFF0F,
+//     CL = 0xFF1F,
+//     DL = 0xFF2F,
+//     BL = 0xFF3F,
+//     AH = 0xFF4F,
+//     CH = 0xFF5F,
+//     DH = 0xFF6F,
+//     BH = 0xFF7F,
+//     ES = 0xF0FF,
+//     CS = 0xF1FF,
+//     SS = 0xF2FF,
+//     DS = 0xF3FF
+// } Register_Location;
+
+uint16_t at_reg(Registers* exec, Register_Location reg)
+{
+    switch (reg)
+    {
+    case AX:
+        return exec->ax;
+    case CX:
+        return exec->cx;
+    case DX:
+        return exec->dx;
+    case BX:
+        return exec->bx;
+    case SP:
+        return exec->sp;
+    case BP:
+        return exec->bp;
+    case SI:
+        return exec->si;
+    case DI:
+        return exec->di;
+    case AL:
+        return exec->ax & 0x00FF;
+    case CL:
+        return exec->cx & 0x00FF;
+    case DL:
+        return exec->dx & 0x00FF;
+    case BL:
+        return exec->bx & 0x00FF;
+    case AH:
+        return (exec->ax & 0xFF00) >> 8;
+    case CH:
+        return (exec->cx & 0xFF00) >> 8;
+    case DH:
+        return (exec->dx & 0xFF00) >> 8;
+    case BH:
+        return (exec->bx & 0xFF00) >> 8;
+    case ES:
+        return exec->es;
+    case CS:
+        return exec->cs;
+    case SS:
+        return exec->ss;
+    case DS:
+        return exec->ds;
+    default:
+        assert(0);
+    }
+}
+
+void mov_exec(Registers* exec, Register_Location dest, Register_Location src, const uint16_t value, uint32_t flags)
+{
+    switch(dest)
+    {
+    case AX:
+        if (flags & IMMEDIATE)
+            exec->ax = value;
+        else if (flags & REGISTER)
+            exec->ax = at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case CX:
+        if (flags & IMMEDIATE)
+            exec->cx = value;
+        else if (flags & REGISTER)
+            exec->cx = at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case DX:
+        if (flags & IMMEDIATE)
+            exec->dx = value;
+        else if (flags & REGISTER)
+            exec->dx = at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case BX:
+        if (flags & IMMEDIATE)
+            exec->bx = value;
+        else if (flags & REGISTER)
+            exec->bx = at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case SP:
+        if (flags & IMMEDIATE)
+            exec->sp = value;
+        else if (flags & REGISTER)
+            exec->sp = at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case BP:
+        if (flags & IMMEDIATE)
+            exec->bp = value;
+        else if (flags & REGISTER)
+            exec->bp = at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case SI:
+        if (flags & IMMEDIATE)
+            exec->si = value;
+        else if (flags & REGISTER)
+            exec->si = at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case DI:
+        if (flags & IMMEDIATE)
+            exec->di = value;
+        else if (flags & REGISTER)
+            exec->di = at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case AL:
+        if (flags & IMMEDIATE)
+            exec->ax = (exec->ax & 0xFF00) | (value & 0x00FF);
+        else if (flags & REGISTER)
+            exec->ax = (exec->ax & 0xFF00) | (uint8_t)at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case CL:
+        if (flags & IMMEDIATE)
+            exec->cx = (exec->cx & 0xFF00) | (value & 0x00FF);
+        else if (flags & REGISTER)
+            exec->cx = (exec->cx & 0xFF00) | (uint8_t)at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case DL:
+        if (flags & IMMEDIATE)
+            exec->dx = (exec->dx & 0xFF00) | (value & 0x00FF);
+        else if (flags & REGISTER)
+            exec->dx = (exec->dx & 0xFF00) | (uint8_t)at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case BL:
+        if (flags & IMMEDIATE)
+            exec->bx = (exec->bx & 0xFF00) | (value & 0x00FF);
+        else if (flags & REGISTER)
+            exec->bx = (exec->bx & 0xFF00) | (uint8_t)at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case AH:
+        if (flags & IMMEDIATE)
+            exec->ax = (exec->ax & 0x00FF) | ((value << 8) & 0xFF00);
+        else if (flags & REGISTER)
+            exec->ax = (exec->ax & 0x00FF) | ((at_reg(exec, src) << 8) & 0xFF00);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case CH:
+        if (flags & IMMEDIATE)
+            exec->cx = (exec->cx & 0x00FF) | ((value << 8) & 0xFF00);
+        else if (flags & REGISTER)
+            exec->cx = (exec->cx & 0x00FF) | ((at_reg(exec, src) << 8) & 0xFF00);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case DH:
+        if (flags & IMMEDIATE)
+            exec->dx = (exec->dx & 0x00FF) | ((value << 8) & 0xFF00);
+        else if (flags & REGISTER)
+            exec->dx = (exec->dx & 0x00FF) | ((at_reg(exec, src) << 8) & 0xFF00);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case BH:
+        if (flags & IMMEDIATE)
+            exec->bx = (exec->bx & 0x00FF) | ((value << 8) & 0xFF00);
+        else if (flags & REGISTER)
+            exec->bx = (exec->bx & 0x00FF) | ((at_reg(exec, src) << 8) & 0xFF00);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case ES:
+        if (flags & IMMEDIATE)
+            exec->es = value;
+        else if (flags & REGISTER)
+            exec->es = at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case CS:
+        if (flags & IMMEDIATE)
+            exec->cs = value;
+        else if (flags & REGISTER)
+            exec->cs = at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case SS:
+        if (flags & IMMEDIATE)
+            exec->ss = value;
+        else if (flags & REGISTER)
+            exec->ss = at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    case DS:
+        if (flags & IMMEDIATE)
+            exec->ds = value;
+        else if (flags & REGISTER)
+            exec->ds = at_reg(exec, src);
+        else if (flags & MEMORY)
+            ;
+        else
+            assert(0);
+        break;
+    default:
+        assert(0);
     }
 }
