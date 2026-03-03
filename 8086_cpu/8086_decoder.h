@@ -509,7 +509,7 @@ void mod_rm_effective_address(Assembly_Inst* assy, Instruction_Code* inst)
     }
 }
 
-void mov_exec(Registers* exec, Register_Location dest, Register_Location src, const uint16_t value, uint32_t flags);
+void inst_exec(Registers* exec, Register_Location dest, Register_Location src, const uint16_t value, uint32_t flags, Operation_Type op);
 void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, Registers* exec)
 {
     int32_t d      = ffetch(inst, Bits_D);
@@ -556,11 +556,21 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, Registers* exec)
         {
             snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
             snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", seg);
+
+            if (exec != NULL)
+            {
+                inst_exec(exec, location_exec(WORD_REGISTERS, mod != REGISTER_MODE ? (uint8_t)reg : (uint8_t)rm), location_exec(SEGMENT_REGISTERS, sr), byte_calc(data_l, data_h), REGISTER, Op_mov);
+            }
         }
         else // mov sr, r/m
         {
             snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", seg);
             snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
+
+            if (exec != NULL)
+            {
+                inst_exec(exec, location_exec(SEGMENT_REGISTERS, sr), location_exec(WORD_REGISTERS, mod != REGISTER_MODE ? (uint8_t)reg : (uint8_t)rm), byte_calc(data_l, data_h), REGISTER, Op_mov);
+            }
         }
         return;
     }
@@ -574,7 +584,7 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, Registers* exec)
 
         if (exec != NULL)
         {
-            mov_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, (uint8_t)reg), NO_LOCATION, byte_calc(data_l, data_h), IMMEDIATE);
+            inst_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, (uint8_t)reg), NO_LOCATION, byte_calc(data_l, data_h), IMMEDIATE, Op_mov);
         }
 
         return;
@@ -638,7 +648,7 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, Registers* exec)
             snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
             if (exec != NULL)
             {
-                mov_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)rm : (uint8_t)reg), location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)reg : (uint8_t)rm), byte_calc(data_l, data_h), REGISTER);
+                inst_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)rm : (uint8_t)reg), location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)reg : (uint8_t)rm), byte_calc(data_l, data_h), REGISTER, Op_mov);
             }
         }
         else
@@ -647,7 +657,7 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, Registers* exec)
             snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", reg_name);
             if (exec != NULL)
             {
-                mov_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)reg : (uint8_t)rm), location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)rm : (uint8_t)reg), byte_calc(data_l, data_h), REGISTER);
+                inst_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)reg : (uint8_t)rm), location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)rm : (uint8_t)reg), byte_calc(data_l, data_h), REGISTER, Op_mov);
             }
         }
         return;
@@ -1464,209 +1474,351 @@ uint16_t at_reg(Registers* exec, Register_Location reg)
     }
 }
 
-void mov_exec(Registers* exec, Register_Location dest, Register_Location src, const uint16_t value, uint32_t flags)
+void inst_exec(Registers* exec, Register_Location dest, Register_Location src, const uint16_t value, uint32_t flags, Operation_Type op)
 {
     switch(dest)
     {
     case AX:
-        if (flags & IMMEDIATE)
-            exec->ax = value;
-        else if (flags & REGISTER)
-            exec->ax = at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->ax = value;
+            else if (flags & REGISTER)
+                exec->ax = at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
-        break;
-    case CX:
-        if (flags & IMMEDIATE)
-            exec->cx = value;
-        else if (flags & REGISTER)
-            exec->cx = at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
-            assert(0);
-        break;
-    case DX:
-        if (flags & IMMEDIATE)
-            exec->dx = value;
-        else if (flags & REGISTER)
-            exec->dx = at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
-            assert(0);
+        }
         break;
     case BX:
-        if (flags & IMMEDIATE)
-            exec->bx = value;
-        else if (flags & REGISTER)
-            exec->bx = at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->bx = value;
+            else if (flags & REGISTER)
+                exec->bx = at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
+        break;
+    case CX:
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->cx = value;
+            else if (flags & REGISTER)
+                exec->cx = at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
+            assert(0);
+        }
+        break;
+    case DX:
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->dx = value;
+            else if (flags & REGISTER)
+                exec->dx = at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
+            assert(0);
+        }
         break;
     case SP:
-        if (flags & IMMEDIATE)
-            exec->sp = value;
-        else if (flags & REGISTER)
-            exec->sp = at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->sp = value;
+            else if (flags & REGISTER)
+                exec->sp = at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
         break;
     case BP:
-        if (flags & IMMEDIATE)
-            exec->bp = value;
-        else if (flags & REGISTER)
-            exec->bp = at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->bp = value;
+            else if (flags & REGISTER)
+                exec->bp = at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
         break;
     case SI:
-        if (flags & IMMEDIATE)
-            exec->si = value;
-        else if (flags & REGISTER)
-            exec->si = at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->si = value;
+            else if (flags & REGISTER)
+                exec->si = at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
         break;
     case DI:
-        if (flags & IMMEDIATE)
-            exec->di = value;
-        else if (flags & REGISTER)
-            exec->di = at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->di = value;
+            else if (flags & REGISTER)
+                exec->di = at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
         break;
     case AL:
-        if (flags & IMMEDIATE)
-            exec->ax = (exec->ax & 0xFF00) | (value & 0x00FF);
-        else if (flags & REGISTER)
-            exec->ax = (exec->ax & 0xFF00) | (uint8_t)at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->ax = (exec->ax & 0xFF00) | (value & 0x00FF);
+            else if (flags & REGISTER)
+                exec->ax = (exec->ax & 0xFF00) | (uint8_t)at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
         break;
     case CL:
-        if (flags & IMMEDIATE)
-            exec->cx = (exec->cx & 0xFF00) | (value & 0x00FF);
-        else if (flags & REGISTER)
-            exec->cx = (exec->cx & 0xFF00) | (uint8_t)at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->cx = (exec->cx & 0xFF00) | (value & 0x00FF);
+            else if (flags & REGISTER)
+                exec->cx = (exec->cx & 0xFF00) | (uint8_t)at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
         break;
     case DL:
-        if (flags & IMMEDIATE)
-            exec->dx = (exec->dx & 0xFF00) | (value & 0x00FF);
-        else if (flags & REGISTER)
-            exec->dx = (exec->dx & 0xFF00) | (uint8_t)at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->dx = (exec->dx & 0xFF00) | (value & 0x00FF);
+            else if (flags & REGISTER)
+                exec->dx = (exec->dx & 0xFF00) | (uint8_t)at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
+
         break;
     case BL:
-        if (flags & IMMEDIATE)
-            exec->bx = (exec->bx & 0xFF00) | (value & 0x00FF);
-        else if (flags & REGISTER)
-            exec->bx = (exec->bx & 0xFF00) | (uint8_t)at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->bx = (exec->bx & 0xFF00) | (value & 0x00FF);
+            else if (flags & REGISTER)
+                exec->bx = (exec->bx & 0xFF00) | (uint8_t)at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
+
         break;
     case AH:
-        if (flags & IMMEDIATE)
-            exec->ax = (exec->ax & 0x00FF) | ((value << 8) & 0xFF00);
-        else if (flags & REGISTER)
-            exec->ax = (exec->ax & 0x00FF) | ((at_reg(exec, src) << 8) & 0xFF00);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->ax = (exec->ax & 0x00FF) | ((value << 8) & 0xFF00);
+            else if (flags & REGISTER)
+                exec->ax = (exec->ax & 0x00FF) | ((at_reg(exec, src) << 8) & 0xFF00);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
         break;
     case CH:
-        if (flags & IMMEDIATE)
-            exec->cx = (exec->cx & 0x00FF) | ((value << 8) & 0xFF00);
-        else if (flags & REGISTER)
-            exec->cx = (exec->cx & 0x00FF) | ((at_reg(exec, src) << 8) & 0xFF00);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->cx = (exec->cx & 0x00FF) | ((value << 8) & 0xFF00);
+            else if (flags & REGISTER)
+                exec->cx = (exec->cx & 0x00FF) | ((at_reg(exec, src) << 8) & 0xFF00);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
         break;
     case DH:
-        if (flags & IMMEDIATE)
-            exec->dx = (exec->dx & 0x00FF) | ((value << 8) & 0xFF00);
-        else if (flags & REGISTER)
-            exec->dx = (exec->dx & 0x00FF) | ((at_reg(exec, src) << 8) & 0xFF00);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->dx = (exec->dx & 0x00FF) | ((value << 8) & 0xFF00);
+            else if (flags & REGISTER)
+                exec->dx = (exec->dx & 0x00FF) | ((at_reg(exec, src) << 8) & 0xFF00);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
         break;
     case BH:
-        if (flags & IMMEDIATE)
-            exec->bx = (exec->bx & 0x00FF) | ((value << 8) & 0xFF00);
-        else if (flags & REGISTER)
-            exec->bx = (exec->bx & 0x00FF) | ((at_reg(exec, src) << 8) & 0xFF00);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->bx = (exec->bx & 0x00FF) | ((value << 8) & 0xFF00);
+            else if (flags & REGISTER)
+                exec->bx = (exec->bx & 0x00FF) | ((at_reg(exec, src) << 8) & 0xFF00);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
         break;
     case ES:
-        if (flags & IMMEDIATE)
-            exec->es = value;
-        else if (flags & REGISTER)
-            exec->es = at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->es = value;
+            else if (flags & REGISTER)
+                exec->es = at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
         break;
     case CS:
-        if (flags & IMMEDIATE)
-            exec->cs = value;
-        else if (flags & REGISTER)
-            exec->cs = at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->cs = value;
+            else if (flags & REGISTER)
+                exec->cs = at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
         break;
     case SS:
-        if (flags & IMMEDIATE)
-            exec->ss = value;
-        else if (flags & REGISTER)
-            exec->ss = at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->ss = value;
+            else if (flags & REGISTER)
+                exec->ss = at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
         break;
     case DS:
-        if (flags & IMMEDIATE)
-            exec->ds = value;
-        else if (flags & REGISTER)
-            exec->ds = at_reg(exec, src);
-        else if (flags & MEMORY)
-            ;
-        else
+        switch (op)
+        {
+        case Op_mov:
+            if (flags & IMMEDIATE)
+                exec->ds = value;
+            else if (flags & REGISTER)
+                exec->ds = at_reg(exec, src);
+            else if (flags & MEMORY)
+                ;
+            else
+                assert(0);
+            break;
+        default:
             assert(0);
+        }
         break;
     default:
         assert(0);

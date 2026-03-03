@@ -1,4 +1,4 @@
-#include "8086_decode.h"
+#include "8086_decoder.h"
 
 
 int main(int argc, char* argv[])
