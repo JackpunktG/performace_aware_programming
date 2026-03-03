@@ -1473,18 +1473,15 @@ void print_register_change(CP_units* old_state, CP_units* new_state)
         }
     }
 
+    if (change)
+        printf("  | ");
+    printf("(flags) ");
+    print_set_flags(old_state);
     if(old_state->flags != new_state->flags)
     {
-        if (change)
-            printf("  | ");
-        printf("(flags) ");
-        print_set_flags(old_state);
-        printf(" -> ");
+        printf("-> ");
         print_set_flags(new_state);
     }
-
-    if (!change)
-        printf("No register changes");
 
     printf("\n");
 }
@@ -1602,7 +1599,7 @@ uint8_t at_reg(Register_Location reg, uint16_t* bitmask, uint8_t* bit_shift)
 }
 
 #define MSB (1<<15)
-void check_flags(CP_units* exec, const uint16_t result, const uint16_t before, const Operation_Type op)
+void check_flags(CP_units* exec, const int16_t result, const int16_t before, const int16_t value, const Operation_Type op)
 {
     if (result == 0)
         exec->flags |= ZERO_FLAG;
@@ -1623,51 +1620,44 @@ void check_flags(CP_units* exec, const uint16_t result, const uint16_t before, c
     else
         exec->flags &= ~PARITY_FLAG;
 
-    // int16_t signed_test = (int16_t)result;
-    // switch(op)
-    // {
-    // case Op_add:
-    //     if (signed_test < result)
-    //         exec->flags |= OVERFLOW_FLAG;
-    //     else
-    //         exec->flags &= ~OVERFLOW_FLAG;
-    //     if (result < before)
-    //         exec->flags |= CARRY_FLAG;
-    //     else
-    //         exec->flags &= ~CARRY_FLAG;
-    //     break;
-    // case Op_sub:
-    //     if (signed_test > result)
-    //         exec->flags |= OVERFLOW_FLAG;
-    //     else
-    //         exec->flags &= ~OVERFLOW_FLAG;
-    //     if (result < before)
-    //         exec->flags |= CARRY_FLAG;
-    //     else
-    //         exec->flags &= ~CARRY_FLAG;
-    //     break;
-    // case Op_cmp:
-    //     if (signed_test > result)
-    //         exec->flags |= OVERFLOW_FLAG;
-    //     else
-    //         exec->flags &= ~OVERFLOW_FLAG;
-    //     if (result > before)
-    //         exec->flags |= CARRY_FLAG;
-    //     else
-    //         exec->flags &= ~CARRY_FLAG;
-    //     break;
-    // default:
-    //
-    //     break;
-    // }
+    printf("result: %d, before %d, amount: %d\n", result, before, value);
+    switch(op)
+    {
+    case Op_add:
+        // adding numbers with the same sign and the result is diff
+        if (((before ^ result) & (value ^ result)) < 0)
+            exec->flags |= OVERFLOW_FLAG;
+        else
+            exec->flags &= ~OVERFLOW_FLAG;
+        // if (result < before)
+        //     exec->flags |= CARRY_FLAG;
+        // else
+        //     exec->flags &= ~CARRY_FLAG;
+        break;
+    case Op_sub:
+    case Op_cmp:
+        // sub with different signed numbers and result sign diff from first
+        if (((before ^ value) & (before ^ result)) < 0)
+            exec->flags |= OVERFLOW_FLAG;
+        else
+            exec->flags &= ~OVERFLOW_FLAG;
+        // if (result > before)
+        //     exec->flags |= CARRY_FLAG;
+        // else
+        //     exec->flags &= ~CARRY_FLAG;
+        break;
+    default:
+
+        break;
+    }
 
 }
 
 void inst_exec(CP_units* exec, const Register_Location dest, const Register_Location src, const uint16_t value, const uint32_t flags, const Operation_Type op)
 {
     uint8_t bit_shift = 0;
-    uint16_t bitmask = 0xFFFF;
-    uint8_t r_dest   = at_reg(dest, &bitmask, &bit_shift);
+    uint16_t bitmask  = 0xFFFF;
+    uint8_t r_dest    = at_reg(dest, &bitmask, &bit_shift);
 
 
     switch (op)
@@ -1690,9 +1680,12 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
     case Op_add:
     {
         uint16_t result;
+        uint16_t amount;
+        const uint16_t before = exec->reg[r_dest] >> bit_shift;
         if (flags & FROM_IMMEDIATE)
         {
-            result             = (exec->reg[r_dest] >> bit_shift) + value;
+            amount             = value;
+            result             = (exec->reg[r_dest] >> bit_shift) + amount;
             exec->reg[r_dest]  = (exec->reg[r_dest] & ~bitmask ) | (bitmask & (result << bit_shift));
         }
         else if (flags & FROM_REGISTER)
@@ -1700,7 +1693,8 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
             uint8_t s_shift    = 0;
             uint8_t r_src      = at_reg(src, NULL, &s_shift);
 
-            result             = (exec->reg[r_dest] >> bit_shift) + (exec->reg[r_src] >> s_shift);
+            amount             = (exec->reg[r_src] >> s_shift);
+            result             = (exec->reg[r_dest] >> bit_shift) + amount;
             exec->reg[r_dest]  = (exec->reg[r_dest] & ~bitmask ) | (bitmask & (result << bit_shift));
 
         }
@@ -1709,18 +1703,19 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
         else
             assert(0 && "ERROR - Not yet implementated\n");
 
-        check_flags(exec, result, exec->reg[r_dest] >> bit_shift, Op_add);
+        check_flags(exec, result, before, amount, Op_add);
         break;
     }
     case Op_sub:
     {
         uint16_t result;
-        uint16_t before = exec->reg[r_dest] >> bit_shift;
+        uint16_t amount;
+        const uint16_t before = exec->reg[r_dest] >> bit_shift;
         if (flags & FROM_IMMEDIATE)
         {
-            result = (exec->reg[r_dest] >> bit_shift) - value;
+            amount             = value;
+            result             = (exec->reg[r_dest] >> bit_shift) - amount;
             exec->reg[r_dest]  = (exec->reg[r_dest] & ~bitmask ) | (bitmask & (result << bit_shift));
-            check_flags(exec, result, exec->reg[r_dest] >> bit_shift, Op_sub);
 
         }
         else if (flags & FROM_REGISTER)
@@ -1728,26 +1723,28 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
             uint8_t s_shift    = 0;
             uint8_t r_src      = at_reg(src, NULL, &s_shift);
 
-            result = (exec->reg[r_dest] >> bit_shift) - (exec->reg[r_src] >> s_shift);
-
+            amount             = (exec->reg[r_src] >> s_shift);
+            result             = (exec->reg[r_dest] >> bit_shift) - amount;
             exec->reg[r_dest]  = (exec->reg[r_dest] & ~bitmask ) | (bitmask & (result << bit_shift));
 
-            check_flags(exec, result, before, Op_sub);
 
         }
         else if (flags & FROM_MEMORY)
             assert(0 && "ERROR - Not yet implementated\n");
         else
             assert(0 && "ERROR - Not yet implementated\n");
+        check_flags(exec, result, before, amount, Op_sub);
         break;
     }
     case Op_cmp:
     {
         uint16_t result;
+        uint16_t amount;
+        const uint16_t before = exec->reg[r_dest] >> bit_shift;
         if (flags & FROM_IMMEDIATE)
         {
-            result = (exec->reg[r_dest] >> bit_shift) - value;
-            check_flags(exec, result, exec->reg[r_dest] >> bit_shift, Op_cmp);
+            amount = value;
+            result = (exec->reg[r_dest] >> bit_shift) - amount;
 
         }
         else if (flags & FROM_REGISTER)
@@ -1755,14 +1752,16 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
             uint8_t s_shift    = 0;
             uint8_t r_src      = at_reg(src, NULL, &s_shift);
 
-            result = (exec->reg[r_dest] >> bit_shift) - (exec->reg[r_src] >> s_shift);
-            check_flags(exec, result, exec->reg[r_dest] >> bit_shift, Op_cmp);
+            amount = (exec->reg[r_src] >> s_shift);
+            result = (exec->reg[r_dest] >> bit_shift) - amount;
 
         }
         else if (flags & FROM_MEMORY)
             assert(0 && "ERROR - Not yet implementated\n");
         else
             assert(0 && "ERROR - Not yet implementated\n");
+
+        check_flags(exec, result, before, amount, Op_cmp);
         break;
     }
     default:
