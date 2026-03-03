@@ -309,7 +309,6 @@ void print_binary_32(const uint32_t var_32)
             printf("1");
         else printf("0");
     }
-    printf("\n");
 }
 
 void print_binary_16(const uint16_t var_16)
@@ -320,7 +319,6 @@ void print_binary_16(const uint16_t var_16)
             printf("1");
         else printf("0");
     }
-    printf("\n");
 }
 
 void print_binary_8(const uint8_t var_8)
@@ -332,6 +330,5 @@ void print_binary_8(const uint8_t var_8)
             printf("1");
         else printf("0");
     }
-    printf("\n");
 }
 #endif // PAP_HELPER_H_IMPLEMENTATION

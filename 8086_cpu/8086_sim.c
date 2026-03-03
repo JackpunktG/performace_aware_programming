@@ -1,4 +1,4 @@
-#include "8086_decoder.h"
+#include "8086_simulator.h"
 
 
 int main(int argc, char* argv[])
