@@ -73,10 +73,11 @@ typedef struct CP_units
     uint16_t reg[12];
     uint16_t ip;
     uint16_t flags;
+    Memory* memory;
 } CP_units;
 
-CP_units* registers_init();
-void print_registers(CP_units* unit);
+CP_units* registers_init(Memory* memory);
+void print_memory_status(CP_units* unit);
 
 /* Implementation */
 
@@ -87,7 +88,7 @@ void print_registers(CP_units* unit);
 typedef struct Memory
 {
     uint8_t* data;
-    uint32_t bytes_used;
+    uint32_t bytes_used; // only counting the number of bytes needed to store the program
 } Memory;
 
 void read_file(Memory* memory, const char* file_path)
@@ -265,7 +266,6 @@ int ffetch(Instruction_Code* inst, Bits_Usage field)
 typedef enum : uint16_t
 {
     NO_LOCATION    = 0x0000,
-    DIRECT_ADDRESS = 0xFFFF,
 
     AX = 0xFFF0,
     CX = 0xFFF1,
@@ -287,16 +287,25 @@ typedef enum : uint16_t
     CS = 0xF1FF,
     SS = 0xF2FF,
     DS = 0xF3FF,
-    // Add Effective Addresses here
+    BX_SI = 0x0FFF,
+    BX_DI = 0x1FFF,
+    BP_SI = 0x2FFF,
+    BP_DI = 0x3FFF,
+    SI_ = 0x4FFF,
+    DI_ = 0x5FFF,
+    BP_ = 0x6FFF,
+    BX_ = 0x7FFF,
+    DIRECT_ADDRESS_LOCATION = 0x8FFF,
 } Register_Location;
 
+#define NOT_USED 0
 enum
 {
-    FROM_IMMEDIATE = (1<<0),
-    FROM_REGISTER  = (1<<1),
-    FROM_MEMORY    = (1<<2),
-    TO_MEMORY      = (1<<3),
-    MAYBE_MEMORY   = (1<<4)
+    FROM_IMMEDIATE  = (1<<0),
+    FROM_REGISTER   = (1<<1),
+    FROM_MEMORY     = (1<<2),
+    TO_MEMORY       = (1<<3),
+    WORD_OPPERATION = (1<<4)
 };
 
 
@@ -556,7 +565,46 @@ void mod_rm_effective_address(Assembly_Inst* assy, Instruction_Code* inst)
     }
 }
 
-void inst_exec(CP_units* exec, const Register_Location dest, const Register_Location src, const uint16_t value, const uint32_t flags, const Operation_Type op);
+void location_extract(Register_Location* Rm, Register_Location* Reg, Instruction_Code* inst)
+{
+    int32_t w      = ffetch(inst, Bits_W);
+    int32_t mod    = ffetch(inst, Bits_MOD);
+    int32_t reg    = ffetch(inst, Bits_REG);
+    int32_t rm     = ffetch(inst, Bits_RM);
+    int32_t disp_l = ffetch(inst, Bits_Disp_L);
+    int32_t disp_h = ffetch(inst, Bits_Disp_H);
+
+    switch (mod)
+    {
+    case REGISTER_MODE:
+        *Rm = location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, rm);
+        if (reg != NOT_USED)
+            *Reg = location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, reg);
+        break;
+    case NO_DISPLACEMENT:
+        if (rm == 0b110)
+        {
+            *Rm = DIRECT_ADDRESS_LOCATION;
+            if (reg != NOT_USED)
+                *Reg = location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, reg);
+        }
+        else
+        {
+            *Rm = location_exec(EFFECTIVE_ADDRESSES, rm);
+            if (reg != NOT_USED)
+                *Reg = location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, reg);
+        }
+        break;
+    case _8_BIT_DISPLACEMENT:
+    case _16_BIT_DISPLACEMENT:
+        *Rm = location_exec(EFFECTIVE_ADDRESSES, rm);
+        if (reg != NOT_USED)
+            *Reg = location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, reg);
+        break;
+    }
+}
+
+void inst_exec(CP_units* exec, const Register_Location dest, const Register_Location src, const uint16_t value, const int16_t disp, const uint32_t flags, const Operation_Type op);
 void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec)
 {
     int32_t d      = ffetch(inst, Bits_D);
@@ -606,17 +654,28 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec)
 
             if (exec != NULL)
             {
-                inst_exec(exec, location_exec(WORD_REGISTERS, mod != REGISTER_MODE ? (uint8_t)reg : (uint8_t)rm), location_exec(SEGMENT_REGISTERS, sr), byte_calc(data_l, data_h), FROM_REGISTER | MAYBE_MEMORY, Op_mov);
-            }
-        }
-        else // mov sr, r/m
-        {
-            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", seg);
-            snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
+                {
+                    Register_Location rm_location;
+                    Register_Location reg_location;
+                    location_extract(&rm_location, &reg_location, inst);
 
-            if (exec != NULL)
+                    inst_exec(exec, rm_location, location_exec(SEGMENT_REGISTERS, sr), byte_calc(data_l, data_h), disp_calc(disp_l, disp_h), WORD_OPPERATION | FROM_REGISTER, Op_mov);
+
+                }
+            }
+            else // mov sr, r/m
             {
-                inst_exec(exec, location_exec(SEGMENT_REGISTERS, sr), location_exec(WORD_REGISTERS, mod != REGISTER_MODE ? (uint8_t)reg : (uint8_t)rm), byte_calc(data_l, data_h), FROM_REGISTER | MAYBE_MEMORY, Op_mov);
+                snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", seg);
+                snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
+
+                if (exec != NULL)
+                {
+                    Register_Location rm_location;
+                    Register_Location reg_location;
+                    location_extract(&rm_location, &reg_location, inst);
+
+                    inst_exec(exec, location_exec(SEGMENT_REGISTERS, sr), rm_location, byte_calc(data_l, data_h), disp_calc(disp_l, disp_h), WORD_OPPERATION | FROM_REGISTER, Op_mov);
+                }
             }
         }
         return;
@@ -631,7 +690,7 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec)
 
         if (exec != NULL)
         {
-            inst_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, (uint8_t)reg), NO_LOCATION, byte_calc(data_l, data_h), FROM_IMMEDIATE, Op_mov);
+            inst_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, (uint8_t)reg), NO_LOCATION, byte_calc(data_l, data_h), NOT_USED, (w ? WORD_OPPERATION : 0) | FROM_IMMEDIATE, Op_mov);
         }
 
         return;
@@ -651,7 +710,7 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec)
 
             if (exec != NULL)
             {
-                inst_exec(exec, AX, DIRECT_ADDRESS, byte_calc(data_l, data_h), FROM_MEMORY, Op_mov);
+                inst_exec(exec, w ? AX : AL, DIRECT_ADDRESS_LOCATION, NOT_USED, byte_calc(data_l, data_h), (w ? WORD_OPPERATION : 0) | FROM_MEMORY, Op_mov);
             }
         }
         else // mov [addr], acc
@@ -661,7 +720,7 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec)
 
             if (exec != NULL)
             {
-                inst_exec(exec, DIRECT_ADDRESS, AX, byte_calc(data_l, data_h), FROM_REGISTER | MAYBE_MEMORY, Op_mov);
+                inst_exec(exec, DIRECT_ADDRESS_LOCATION, w ? AX : AL, NOT_USED, byte_calc(data_l, data_h), (w ? WORD_OPPERATION : 0) | FROM_MEMORY, Op_mov);
             }
         }
         return;
@@ -705,7 +764,11 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec)
             snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
             if (exec != NULL)
             {
-                inst_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)rm : (uint8_t)reg), location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)reg : (uint8_t)rm), byte_calc(data_l, data_h), FROM_REGISTER | MAYBE_MEMORY, Op_mov);
+                Register_Location rm_location;
+                Register_Location reg_location;
+                location_extract(&rm_location, &reg_location, inst);
+
+                inst_exec(exec, reg_location, rm_location, byte_calc(data_l, data_h), disp_calc(disp_l, disp_h), (w ? WORD_OPPERATION : 0) | FROM_REGISTER, Op_mov);
             }
         }
         else
@@ -714,7 +777,11 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec)
             snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", reg_name);
             if (exec != NULL)
             {
-                inst_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)reg : (uint8_t)rm), location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)rm : (uint8_t)reg), byte_calc(data_l, data_h), FROM_REGISTER | MAYBE_MEMORY, Op_mov);
+                Register_Location rm_location;
+                Register_Location reg_location;
+                location_extract(&rm_location, &reg_location, inst);
+
+                inst_exec(exec, rm_location, reg_location, byte_calc(data_l, data_h), disp_calc(disp_l, disp_h), (w ? WORD_OPPERATION : 0) | FROM_REGISTER, Op_mov);
             }
         }
         return;
@@ -729,7 +796,11 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec)
 
         if (exec != NULL)
         {
-            inst_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, mod != REGISTER_MODE ? (uint8_t)rm : (uint8_t)reg), NO_LOCATION, byte_calc(data_l, data_h), FROM_IMMEDIATE | MAYBE_MEMORY, Op_mov);
+            Register_Location rm_location;
+            Register_Location reg_location;
+            location_extract(&rm_location, &reg_location, inst);
+
+            inst_exec(exec, rm_location, NO_LOCATION, byte_calc(data_l, data_h), disp_calc(disp_l, disp_h), (w ? WORD_OPPERATION : 0) | FROM_IMMEDIATE, Op_mov);
         }
         return;
     }
@@ -759,7 +830,7 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst, Decode_Un
 
         if (exec != NULL)
         {
-            inst_exec(exec, w ? AX : AL, NO_LOCATION, byte_calc(data_l, data_h), FROM_IMMEDIATE, inst->type);
+            inst_exec(exec, w ? AX : AL, NO_LOCATION, byte_calc(data_l, data_h), NOT_USED, FROM_IMMEDIATE, inst->type);
         }
     }
 
@@ -807,7 +878,12 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst, Decode_Un
 
         if (exec != NULL)
         {
-            inst_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, d > 0 ? (uint8_t)reg : (uint8_t)rm), location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, d > 0 ? (uint8_t)rm : (uint8_t)reg), byte_calc(data_l, data_h), FROM_REGISTER | MAYBE_MEMORY, inst->type);
+            Register_Location rm_location;
+            Register_Location reg_location;
+            location_extract(&rm_location, &reg_location, inst);
+            uint32_t mode = (rm_location >= BX_SI && rm_location <= DIRECT_ADDRESS_LOCATION) ? (d > 0) ? FROM_MEMORY : TO_MEMORY : FROM_REGISTER;
+
+            inst_exec(exec, d > 0 ? reg_location : rm_location,  d > 0 ? rm_location : reg_location, byte_calc(data_l, data_h), NOT_USED, mode, inst->type);
         }
 
         return;
@@ -849,7 +925,7 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst, Decode_Un
 
         if (exec != NULL)
         {
-            inst_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, (uint8_t)rm), NO_LOCATION, (w && s) ? disp_calc(data_l, data_h) : byte_calc(data_l, data_h), FROM_IMMEDIATE | MAYBE_MEMORY, inst->type);
+            inst_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, (uint8_t)rm), NO_LOCATION, (w && s) ? disp_calc(data_l, data_h) : byte_calc(data_l, data_h), NOT_USED, FROM_IMMEDIATE, inst->type);
         }
 
         return;
@@ -863,7 +939,7 @@ void cond_jump_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* 
     snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%hhd", (int8_t)ffetch(inst, Bits_IP_INC8));
 
     if (exec != NULL)
-        inst_exec(exec, NO_LOCATION, NO_LOCATION, (int8_t)ffetch(inst, Bits_IP_INC8), 0, inst->type);
+        inst_exec(exec, NO_LOCATION, NO_LOCATION, (int8_t)ffetch(inst, Bits_IP_INC8), NOT_USED, 0, inst->type);
 }
 
 
@@ -1368,7 +1444,7 @@ void decode_instruction_stream(Memory* memory, uint32_t flags)
 
     CP_units* exec = NULL;
     if (flags & EXECUTION_OF_INSTRUCTION)
-        exec = registers_init();
+        exec = registers_init(memory);
 
 
     while(count < memory->bytes_used)
@@ -1394,7 +1470,7 @@ void decode_instruction_stream(Memory* memory, uint32_t flags)
     if (flags & EXECUTION_OF_INSTRUCTION)
     {
         printf("\nFinal state of registers");
-        print_registers(exec);
+        print_memory_status(exec);
     }
 
     free(d_unit);
@@ -1407,12 +1483,27 @@ void decode_instruction_stream(Memory* memory, uint32_t flags)
   Simulation Unit
   ========================================*/
 
-CP_units* registers_init()
+void print_memory(Memory* memory)
+{
+    bool data_found = false;
+    for(uint32_t i = memory->bytes_used; i < MEMORY_SIZE; ++i)
+        if (memory->data[i] != 0)
+        {
+            printf("\t[%u]: %hhu\n", i, memory->data[i]);
+            data_found = true;
+        }
+    if (!data_found)
+        printf("\tNo data found after program instruction\n");
+}
+
+CP_units* registers_init(Memory* memory)
 {
     CP_units* r = (CP_units*)malloc(sizeof(CP_units));
     memset(r, 0, sizeof(CP_units));
+    r->memory = memory;
     printf("\nInitial state of registers");
-    print_registers(r);
+    print_memory_status(r);
+    printf("\n");
     return r;
 }
 
@@ -1500,7 +1591,7 @@ void print_register_change(CP_units* old_state, CP_units* new_state)
     }
 }
 
-void print_registers(CP_units* unit)
+void print_memory_status(CP_units* unit)
 {
     printf("\nHexadecimal register values:\n");
     for (uint8_t i = 0; i < array_count(unit->reg); ++i)
@@ -1512,6 +1603,8 @@ void print_registers(CP_units* unit)
     print_set_flags(unit);
     printf("\n\t(binary) ");
     print_binary_16(unit->flags, LINE_P);
+    printf("\n");
+    print_memory(unit->memory);
     printf("\n");
 
 }
@@ -1610,7 +1703,30 @@ uint8_t at_reg(Register_Location reg, uint16_t* bitmask, uint8_t* bit_shift)
     case DS:
         return ds;
     default:
-        assert(0);
+        return 255;
+    }
+}
+
+uint16_t effective_address_calculation(CP_units* exec, const Register_Location location, int16_t disp)
+{
+    switch (location)
+    {
+    case BX_SI:
+        return exec->reg[bx] + exec->reg[di] + (disp == -1 ? 0 : disp);
+    case BP_DI:
+        return exec->reg[bp] + exec->reg[di] + (disp == -1 ? 0 : disp);
+    case BP_SI:
+        return exec->reg[bp] + exec->reg[si] + (disp == -1 ? 0 : disp);
+    case SI_:
+        return exec->reg[si] + (disp == -1 ? 0 : disp);
+    case DI_:
+        return exec->reg[di] + (disp == -1 ? 0 : disp);
+    case BP_:
+        return exec->reg[bp] + (disp == -1 ? 0 : disp);
+    case BX_:
+        return exec->reg[bx] + (disp == -1 ? 0 : disp);
+    default:
+        assert(0 && "ERROR - invalid location for displacement calculation\n");
     }
 }
 
@@ -1696,7 +1812,7 @@ static inline bool cond_jumps_check_flag(CP_units* exec, const Operation_Type ju
     }
 }
 
-void inst_exec(CP_units* exec, const Register_Location dest, const Register_Location src, const uint16_t value, const uint32_t flags, const Operation_Type op)
+void inst_exec(CP_units* exec, const Register_Location dest, const Register_Location src, const uint16_t value, const int16_t disp, const uint32_t flags, const Operation_Type op)
 {
 
     if (op >= Op_je && op <= Op_jcxz)
@@ -1710,11 +1826,94 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
     uint16_t bitmask  = 0xFFFF;
     uint8_t r_dest    = at_reg(dest, &bitmask, &bit_shift);
 
-
     switch (op)
     {
     case Op_mov:
-        if (flags & FROM_IMMEDIATE)
+        if (dest >= BX_SI && dest <= DIRECT_ADDRESS_LOCATION)
+        {
+            if (dest == DIRECT_ADDRESS_LOCATION)
+            {
+                if (flags & FROM_IMMEDIATE)
+                {
+                    if (flags & WORD_OPPERATION)
+                    {
+                        exec->memory->data[(uint16_t)disp]    = (uint8_t)value;
+                        exec->memory->data[(uint16_t)disp +1] = (uint8_t)(value >> 8);
+                    }
+                    else
+                        exec->memory->data[(uint16_t)disp]    = (uint8_t)value;
+                }
+                else if (flags & FROM_REGISTER)
+                {
+                    uint8_t s_shift    = 0;
+                    uint8_t r_src      = at_reg(src, NULL, &s_shift);
+                    if (flags & WORD_OPPERATION)
+                    {
+                        exec->memory->data[(uint16_t)disp]    = (uint8_t)(exec->reg[r_src] >> s_shift);
+                        exec->memory->data[(uint16_t)disp +1] = (uint8_t)((exec->reg[r_src] >> s_shift) >> 8);
+                    }
+                    else
+                        exec->memory->data[(uint16_t)disp]    = (uint8_t)(exec->reg[r_src] >> s_shift);;
+                }
+                else
+                    assert(0);
+            }
+            else
+            {
+                uint16_t memory_index = effective_address_calculation(exec, dest, disp);
+                if (flags & FROM_IMMEDIATE)
+                {
+                    if (flags & WORD_OPPERATION)
+                    {
+                        exec->memory->data[memory_index]    = (uint8_t)value;
+                        exec->memory->data[memory_index +1] = (uint8_t)(value >> 8);
+                    }
+                    else
+                        exec->memory->data[(uint16_t)disp]    = (uint8_t)value;
+                }
+                else if (flags & FROM_REGISTER)
+                {
+                    uint8_t s_shift    = 0;
+                    uint8_t r_src      = at_reg(src, NULL, &s_shift);
+                    if (flags & WORD_OPPERATION)
+                    {
+                        exec->memory->data[memory_index]    = (uint8_t)(exec->reg[r_src] >> s_shift);
+                        exec->memory->data[memory_index +1] = (uint8_t)((exec->reg[r_src] >> s_shift) >> 8);
+                    }
+                    else
+                        exec->memory->data[(uint16_t)disp]    = (uint8_t)(exec->reg[r_src] >> s_shift);;
+                }
+                else
+                    assert(0);
+            }
+
+        }
+        else if (src >= BX_SI && src <= DIRECT_ADDRESS_LOCATION)
+        {
+            if (src == DIRECT_ADDRESS_LOCATION)
+            {
+                if (flags & FROM_REGISTER)
+                {
+                    uint8_t s_shift    = 0;
+                    uint8_t r_src      = at_reg(src, NULL, &s_shift);
+                    if (flags & WORD_OPPERATION)
+                        exec->reg[r_dest] = (exec->memory->data[(uint16_t)disp] << 8) | exec->memory->data[(uint16_t)disp +1];
+                    else
+                        exec->reg[r_dest] = (exec->reg[r_dest] & ~bitmask) | (bitmask & (exec->memory->data[(uint16_t)disp] << bit_shift));
+                }
+                else
+                    assert(0);
+            }
+            else
+            {
+                uint16_t memory_index = effective_address_calculation(exec, src, disp);
+                if (flags & WORD_OPPERATION)
+                    exec->reg[r_dest] = (exec->memory->data[memory_index +1] << 8) | exec->memory->data[memory_index];
+                else
+                    exec->reg[r_dest] = (exec->reg[r_dest] & ~bitmask) | (bitmask & (exec->memory->data[memory_index] << bit_shift));
+            }
+        }
+        else if (flags & FROM_IMMEDIATE)
             exec->reg[r_dest]  = (exec->reg[r_dest] & ~bitmask ) | (bitmask & (value << bit_shift));
         else if (flags & FROM_REGISTER)
         {
@@ -1750,8 +1949,14 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
 
         }
         else if (flags & FROM_MEMORY)
-            assert(0 && "ERROR - Not yet implementated\n");
-        else
+        {
+            uint16_t memory_index = effective_address_calculation(exec, src, disp);
+
+            amount             = exec->memory->data[memory_index] | (flags & WORD_OPPERATION ? (exec->memory->data[memory_index +1] << 8) : 0);
+            result             = (exec->reg[r_dest] >> bit_shift) + amount;
+            exec->reg[r_dest]  = (exec->reg[r_dest] & ~bitmask ) | (bitmask & (result << bit_shift));
+        }
+        else if (flags & TO_MEMORY)
             assert(0 && "ERROR - Not yet implementated\n");
 
         arithmetic_set_flags(exec, result, before, amount, Op_add);
