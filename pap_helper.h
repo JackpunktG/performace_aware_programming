@@ -62,9 +62,12 @@ void arena_reset(Arena* arena); //just restting all the allocated counters to ze
 //to realloc, old_size is needed to add back to free list properly
 void* arena_realloc(Arena* arena, void* old_ptr, size_t new_size, size_t* out_size_alloc);
 
-void print_binary_32(const uint32_t var_32);
-void print_binary_16(const uint16_t var_16);
-void print_binary_8(const uint8_t var_8);
+
+#define LINE_P 0
+#define NEWLINE_P 1
+void print_binary_32(const uint32_t var_32, uint8_t new_line);
+void print_binary_16(const uint16_t var_16, uint8_t new_line);
+void print_binary_8(const uint8_t var_8, uint8_t new_line);
 
 
 
@@ -301,7 +304,7 @@ void arena_destroy(Arena* arena)
     free(arena);
 }
 
-void print_binary_32(const uint32_t var_32)
+void print_binary_32(const uint32_t var_32, uint8_t new_line)
 {
     for (int i = 31; i >= 0; --i)
     {
@@ -309,9 +312,11 @@ void print_binary_32(const uint32_t var_32)
             printf("1");
         else printf("0");
     }
+    if (new_line == NEWLINE_P)
+        printf("\n");
 }
 
-void print_binary_16(const uint16_t var_16)
+void print_binary_16(const uint16_t var_16, uint8_t new_line)
 {
     for (int i = 15; i >= 0; --i)
     {
@@ -319,9 +324,11 @@ void print_binary_16(const uint16_t var_16)
             printf("1");
         else printf("0");
     }
+    if (new_line == NEWLINE_P)
+        printf("\n");
 }
 
-void print_binary_8(const uint8_t var_8)
+void print_binary_8(const uint8_t var_8, uint8_t new_line)
 {
 
     for (int i = 7; i >= 0; --i)
@@ -330,5 +337,7 @@ void print_binary_8(const uint8_t var_8)
             printf("1");
         else printf("0");
     }
+    if (new_line == NEWLINE_P)
+        printf("\n");
 }
 #endif // PAP_HELPER_H_IMPLEMENTATION
