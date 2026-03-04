@@ -234,7 +234,7 @@ void debug_print_Assembly_Inst(Instruction_Code* inst)
     for (int i = 0; i < MAX_BITS_FIELD; i++)
     {
         printf("  Field %d: usage=%s, count=%d, offset=%d, value=0b", i, bits_usage_string(inst->field[i].usage), inst->field[i].count, inst->field[i].offset);
-        print_binary_8(inst->field[i].value);
+        print_binary_8(inst->field[i].value, LINE_P);
         printf("\n");
     }
 }
@@ -858,9 +858,12 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst, Decode_Un
     assert(0 && "ERROR - when constructing arithmetic op\n");
 }
 
-void cond_jump_construct(Assembly_Inst* assy, Instruction_Code* inst)
+void cond_jump_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec)
 {
     snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%hhd", (int8_t)ffetch(inst, Bits_IP_INC8));
+
+    if (exec != NULL)
+        inst_exec(exec, NO_LOCATION, NO_LOCATION, (int8_t)ffetch(inst, Bits_IP_INC8), 0, inst->type);
 }
 
 
@@ -1124,7 +1127,7 @@ void construct_assembly_inst(Instruction_Code* inst, Decode_Unit* d_unit, CP_uni
 
 
     if (inst->type >= Op_je && inst->type <= Op_jcxz)
-        cond_jump_construct(&assy, inst);
+        cond_jump_construct(&assy, inst, exec);
     else if (inst->type >= Op_add && inst->type <= Op_test)
         arithmetic_construct(&assy, inst, d_unit, exec);
     else if (inst->type >= Op_mul && inst->type <= Op_sar)
@@ -1245,7 +1248,8 @@ int decode_instruction(Memory* memory, Decode_Unit* d_unit, const uint32_t memor
             break;
 
         const uint8_t read_byte = memory->data[memory_index + byte_number];
-        DEBUG(print_binary_8(read_byte); printf("\n"))
+        DEBUG(print_binary_8(read_byte, NEWLINE_P))
+
 
         // calculating the offset and copying the next bit code into the table
         inst.field[field_index].offset = (running_total - (byte_number * 8));
@@ -1339,9 +1343,13 @@ int decode_instruction(Memory* memory, Decode_Unit* d_unit, const uint32_t memor
         assert(saftey < 50 && "ERROR - loop saftey triggered in parsing of machine code\n");
 
     }
-    DEBUG(debug_print_Assembly_Inst(&inst))
+    //DEBUG(debug_print_Assembly_Inst(&inst))
+
+    if (exec != NULL)
+        exec->ip += byte_number;
 
     construct_assembly_inst(&inst, d_unit, exec);
+
     return byte_number;
 }
 
@@ -1362,14 +1370,21 @@ void decode_instruction_stream(Memory* memory, uint32_t flags)
     if (flags & EXECUTION_OF_INSTRUCTION)
         exec = registers_init();
 
+
     while(count < memory->bytes_used)
     {
-        DEBUG(print_binary_8(memory->data[count]); printf("\n"))
+        DEBUG(print_binary_8(memory->data[count], NEWLINE_P))
         for(uint32_t i = 0; i < array_count(instruction_table); ++i)
         {
             if(op_code_match(memory->data[count], &instruction_table[i]))
             {
-                count += decode_instruction(memory, d_unit, count, i, exec);
+                if (exec != NULL)
+                {
+                    decode_instruction(memory, d_unit, exec->ip, i, exec);
+                    count = exec->ip;
+                }
+                else
+                    count += decode_instruction(memory, d_unit, count, i, exec);
                 break;
             }
             assert((i +1) != array_count(instruction_table) && "ERROR - unknown Op code\n");
@@ -1468,13 +1483,14 @@ void print_register_change(CP_units* old_state, CP_units* new_state)
         {
             if (change)
                 printf("  | ");
-            printf("(%s) %04hx -> %04hx", register_string(i), old_state->reg[i], new_state->reg[i]);
+            printf("(%s) 0x%04hx -> 0x%04hx", register_string(i), old_state->reg[i], new_state->reg[i]);
             change = true;
         }
     }
 
     if (change)
         printf("  | ");
+    printf("ip: %hu -> %hu | ", old_state->ip, new_state->ip);
     printf("(flags) ");
     print_set_flags(old_state);
     if(old_state->flags != new_state->flags)
@@ -1482,20 +1498,20 @@ void print_register_change(CP_units* old_state, CP_units* new_state)
         printf("-> ");
         print_set_flags(new_state);
     }
-
-    printf("\n");
 }
+
 void print_registers(CP_units* unit)
 {
     printf("\nHexadecimal register values:\n");
     for (uint8_t i = 0; i < array_count(unit->reg); ++i)
     {
-        printf("\t\t%s: %04hx\n", register_string(i), unit->reg[i]);
+        printf("\t\t%s: 0x%04hx\n", register_string(i), unit->reg[i]);
     }
+    printf("\tip: %hu\n", unit->ip);
     printf("\tflags: ");
     print_set_flags(unit);
     printf("\n\t(binary) ");
-    print_binary_16(unit->flags);
+    print_binary_16(unit->flags, LINE_P);
     printf("\n");
 
 }
@@ -1599,7 +1615,7 @@ uint8_t at_reg(Register_Location reg, uint16_t* bitmask, uint8_t* bit_shift)
 }
 
 #define MSB (1<<15)
-void check_flags(CP_units* exec, const int16_t result, const int16_t before, const int16_t value, const Operation_Type op)
+void arithmetic_set_flags(CP_units* exec, const int16_t result, const int16_t before, const int16_t value, const Operation_Type op)
 {
     if (result == 0)
         exec->flags |= ZERO_FLAG;
@@ -1620,7 +1636,7 @@ void check_flags(CP_units* exec, const int16_t result, const int16_t before, con
     else
         exec->flags &= ~PARITY_FLAG;
 
-    printf("result: %d, before %d, amount: %d\n", result, before, value);
+    //printf("result: %d, before %d, amount: %d\n", result, before, value);
     switch(op)
     {
     case Op_add:
@@ -1629,10 +1645,10 @@ void check_flags(CP_units* exec, const int16_t result, const int16_t before, con
             exec->flags |= OVERFLOW_FLAG;
         else
             exec->flags &= ~OVERFLOW_FLAG;
-        // if (result < before)
-        //     exec->flags |= CARRY_FLAG;
-        // else
-        //     exec->flags &= ~CARRY_FLAG;
+        if (result < before)
+            exec->flags |= CARRY_FLAG;
+        else
+            exec->flags &= ~CARRY_FLAG;
         break;
     case Op_sub:
     case Op_cmp:
@@ -1641,10 +1657,10 @@ void check_flags(CP_units* exec, const int16_t result, const int16_t before, con
             exec->flags |= OVERFLOW_FLAG;
         else
             exec->flags &= ~OVERFLOW_FLAG;
-        // if (result > before)
-        //     exec->flags |= CARRY_FLAG;
-        // else
-        //     exec->flags &= ~CARRY_FLAG;
+        if (value > before)
+            exec->flags |= CARRY_FLAG;
+        else
+            exec->flags &= ~CARRY_FLAG;
         break;
     default:
 
@@ -1653,8 +1669,43 @@ void check_flags(CP_units* exec, const int16_t result, const int16_t before, con
 
 }
 
+static inline bool cond_jumps_check_flag(CP_units* exec, const Operation_Type jump, const uint16_t flag)
+{
+    switch (jump)
+    {
+    case Op_je:
+        return flag & ZERO_FLAG;
+    case Op_jne:
+        return !(flag & ZERO_FLAG);
+    case Op_jp:
+        return (flag & PARITY_FLAG);
+    case Op_jb:
+        return flag & CARRY_FLAG;
+    case Op_loop:
+        --exec->reg[cx];
+        return exec->reg[cx] != 0;
+    case Op_loopz:
+        --exec->reg[cx];
+        return flag & ZERO_FLAG && exec->reg[cx] != 0;
+    case Op_loopnz:
+        --exec->reg[cx];
+        return !(flag & ZERO_FLAG) && exec->reg[cx] != 0;
+
+    default:
+        assert(0 && "ERROR - jump instruction not yet implementated\n");
+    }
+}
+
 void inst_exec(CP_units* exec, const Register_Location dest, const Register_Location src, const uint16_t value, const uint32_t flags, const Operation_Type op)
 {
+
+    if (op >= Op_je && op <= Op_jcxz)
+    {
+        if (cond_jumps_check_flag(exec, op, exec->flags))
+            exec->ip += (int8_t)value;
+        return;
+    }
+
     uint8_t bit_shift = 0;
     uint16_t bitmask  = 0xFFFF;
     uint8_t r_dest    = at_reg(dest, &bitmask, &bit_shift);
@@ -1703,7 +1754,7 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
         else
             assert(0 && "ERROR - Not yet implementated\n");
 
-        check_flags(exec, result, before, amount, Op_add);
+        arithmetic_set_flags(exec, result, before, amount, Op_add);
         break;
     }
     case Op_sub:
@@ -1733,7 +1784,7 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
             assert(0 && "ERROR - Not yet implementated\n");
         else
             assert(0 && "ERROR - Not yet implementated\n");
-        check_flags(exec, result, before, amount, Op_sub);
+        arithmetic_set_flags(exec, result, before, amount, Op_sub);
         break;
     }
     case Op_cmp:
@@ -1761,7 +1812,7 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
         else
             assert(0 && "ERROR - Not yet implementated\n");
 
-        check_flags(exec, result, before, amount, Op_cmp);
+        arithmetic_set_flags(exec, result, before, amount, Op_cmp);
         break;
     }
     default:
