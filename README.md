@@ -39,3 +39,8 @@ Passing the '-exec' flag will run the instructions through the simulator and pri
 ```bash
 8086_sim -exec <assembly_file> 
 ```
+
+Passing the '-dump' flag will output the memory at the end of our simulation to a file. Allow us to run small assembly programs and check the final state of memory after execution. Like creating a program the creates an RGBA image.
+```bash
+8086_sim -dump <assembly_file> 
+```
