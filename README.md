@@ -21,7 +21,7 @@ The 8086 simulator is a software implementation of the Intel 8086 microprocessor
 
 #### To build
 
-To build the project, you can use the provided Makefile. Simply run the following command  int he 8086_cpu directory once you have downloaded the repository:
+Building the project is easy, as the Simulator is all in one single-file header library. Simply run the following command in the 8086_cpu directory once you have downloaded the repository:
 
 ```bash
 gcc -O0 8086_sim.c -o 8086_sim
