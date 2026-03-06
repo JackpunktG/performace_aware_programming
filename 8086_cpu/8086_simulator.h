@@ -29,6 +29,7 @@ void read_file(Memory* memory, const char* file_path);
   Decoding unit
   =================================================*/
 #define EXECUTION_OF_INSTRUCTION (1<<0)
+#define DUMP_MEMORY_AFTER_EXEC   (1<<1)
 
 typedef struct Assembly_Inst Assembly_Inst;
 
@@ -78,6 +79,7 @@ typedef struct CP_units
 
 CP_units* registers_init(Memory* memory);
 void print_memory_status(CP_units* unit);
+void dump_memory(Memory* memory);
 
 /* Implementation */
 
@@ -578,27 +580,27 @@ void location_extract(Register_Location* Rm, Register_Location* Reg, Instruction
     {
     case REGISTER_MODE:
         *Rm = location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, rm);
-        if (reg != NOT_USED)
+        if (reg != FIELD_NOT_SET)
             *Reg = location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, reg);
         break;
     case NO_DISPLACEMENT:
         if (rm == 0b110)
         {
             *Rm = DIRECT_ADDRESS_LOCATION;
-            if (reg != NOT_USED)
+            if (reg != FIELD_NOT_SET)
                 *Reg = location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, reg);
         }
         else
         {
             *Rm = location_exec(EFFECTIVE_ADDRESSES, rm);
-            if (reg != NOT_USED)
+            if (reg != FIELD_NOT_SET)
                 *Reg = location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, reg);
         }
         break;
     case _8_BIT_DISPLACEMENT:
     case _16_BIT_DISPLACEMENT:
         *Rm = location_exec(EFFECTIVE_ADDRESSES, rm);
-        if (reg != NOT_USED)
+        if (reg != FIELD_NOT_SET)
             *Reg = location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, reg);
         break;
     }
@@ -1473,6 +1475,9 @@ void decode_instruction_stream(Memory* memory, uint32_t flags)
     {
         printf("\nFinal state of registers");
         print_memory_status(exec);
+
+        if (flags & DUMP_MEMORY_AFTER_EXEC)
+            dump_memory(memory);
     }
 
     free(d_unit);
@@ -1847,15 +1852,15 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
                 }
                 else if (flags & FROM_REGISTER)
                 {
-                    uint8_t s_shift    = 0;
-                    uint8_t r_src      = at_reg(src, NULL, &s_shift);
+                    uint8_t src_shift  = 0;
+                    uint8_t r_src      = at_reg(src, NULL, &src_shift);
                     if (flags & WORD_OPPERATION)
                     {
-                        exec->memory->data[(uint16_t)disp]    = (uint8_t)(exec->reg[r_src] >> s_shift);
-                        exec->memory->data[(uint16_t)disp +1] = (uint8_t)((exec->reg[r_src] >> s_shift) >> 8);
+                        exec->memory->data[(uint16_t)disp]    = (uint8_t)(exec->reg[r_src] >> src_shift);
+                        exec->memory->data[(uint16_t)disp +1] = (uint8_t)((exec->reg[r_src] >> src_shift) >> 8);
                     }
                     else
-                        exec->memory->data[(uint16_t)disp]    = (uint8_t)(exec->reg[r_src] >> s_shift);;
+                        exec->memory->data[(uint16_t)disp]    = (uint8_t)(exec->reg[r_src] >> src_shift);;
                 }
                 else
                     assert(0);
@@ -1871,19 +1876,25 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
                         exec->memory->data[memory_index +1] = (uint8_t)(value >> 8);
                     }
                     else
-                        exec->memory->data[(uint16_t)disp]    = (uint8_t)value;
+                        exec->memory->data[memory_index]    = (uint8_t)value;
                 }
                 else if (flags & FROM_REGISTER)
                 {
-                    uint8_t s_shift    = 0;
-                    uint8_t r_src      = at_reg(src, NULL, &s_shift);
+                    printf("memory_index: %hu\n", memory_index);
+                    uint8_t src_shift  = 0;
+                    uint8_t r_src      = at_reg(src, NULL, &src_shift);
+                    printf("src reg: %hu\n", (src));
+                    printf("shift value: %hhu\n", src_shift);
+                    printf("src value: %hhu\n", (exec->reg[r_src] >> src_shift));
+                    printf("reg value: %hx\n", (exec->reg[r_src]));
+                    printf("reg value: %hx\n", exec->reg[ax]);
                     if (flags & WORD_OPPERATION)
                     {
-                        exec->memory->data[memory_index]    = (uint8_t)(exec->reg[r_src] >> s_shift);
-                        exec->memory->data[memory_index +1] = (uint8_t)((exec->reg[r_src] >> s_shift) >> 8);
+                        exec->memory->data[memory_index]    = (uint8_t)(exec->reg[r_src] >> src_shift);
+                        exec->memory->data[memory_index +1] = (uint8_t)((exec->reg[r_src] >> src_shift) >> 8);
                     }
                     else
-                        exec->memory->data[(uint16_t)disp]    = (uint8_t)(exec->reg[r_src] >> s_shift);;
+                        exec->memory->data[memory_index]    = (uint8_t)(exec->reg[r_src] >> src_shift);
                 }
                 else
                     assert(0);
@@ -2030,4 +2041,24 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
         assert(0 && "ERROR - Op code not yet implementated\n");
     }
 
+}
+
+void dump_memory(Memory* memory)
+{
+    char filename[64];
+    snprintf(filename, 64, "memory_dump_%lu.data", time(NULL));
+
+    FILE* file_ptr = fopen(filename, "wb");
+    if (file_ptr == NULL)
+    {
+        printf("ERROR - could not open file for memory dump\n");
+        return;
+    }
+
+    for(uint32_t i = 0; i < MEMORY_SIZE; ++i)
+        fwrite(&memory->data[i], sizeof(uint8_t), 1, file_ptr);
+
+    fclose(file_ptr);
+
+    printf("Memory sucessfully dumped to file: %s\n", filename);
 }
