@@ -26,7 +26,7 @@ To build the project, you can use the provided Makefile. Simply run the followin
 ```bash
 gcc -O0 8086_sim.c -o 8086_sim
 ```
-To run the assemblfy file and print to stdout the decoded instructions
+To run the assemblfy file and print to stdout the decoded instructions.
 ```bash
 8086_sim <assembly_file> 
 ```
