@@ -15,8 +15,6 @@ This repo will be updated as I progress through the course and will contain my f
 
 Built an accurate decoder that can take in a stream of bytes and output the correct assembly instructions. Being able to then re-assemble the instructions back into the original byte stream to test whether there is a difference. 
 
-Running the script 'script_test_decpder.sh' will run all the tests in the 'tests' folder and automatically check if the ouput it correct.
-
 #### 8086 Simulation    
 
 The 8086 simulator is a software implementation of the Intel 8086 microprocessor. It has the same instruction set and architecture of the original 8086, whilst seeing the changes in registers and memory as the instructions are executed. 
@@ -28,15 +26,16 @@ To build the project, you can use the provided Makefile. Simply run the followin
 ```bash
 gcc -O0 8086_sim.c -o 8086_sim
 ```
-
+To run the assemblfy file and print to stdout the decoded instructions
 ```bash
-8086_sim <assembly_file> // will run the assemblfy file and print to stdout the decoded instructions
+8086_sim <assembly_file> 
+```
+Run all the tests in the 'tests' folder and automatically check if the ouput it correct.
+```bash
+./script_test_decoder.sh 
 ```
 
+Passing the '-exec' flag will run the instructions through the simulator and print the changes in registers and memory as the instructions are executed.
 ```bash
-./script_test_decoder.sh // will run all the tests in the 'tests' folder and automatically check if the ouput it correct.
-```
-
-```bash
-8086_sim -exec <assembly_file> // passing the '-exec' flag will run the instructions through the simulator and print the changes in registers and memory as the instructions are executed.
+8086_sim -exec <assembly_file> 
 ```
