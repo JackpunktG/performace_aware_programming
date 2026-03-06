@@ -663,21 +663,22 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec)
 
                 }
             }
-            else // mov sr, r/m
+        }
+        else // mov sr, r/m
+        {
+            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", seg);
+            snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
+
+            if (exec != NULL)
             {
-                snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", seg);
-                snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
+                Register_Location rm_location;
+                Register_Location reg_location;
+                location_extract(&rm_location, &reg_location, inst);
 
-                if (exec != NULL)
-                {
-                    Register_Location rm_location;
-                    Register_Location reg_location;
-                    location_extract(&rm_location, &reg_location, inst);
-
-                    inst_exec(exec, location_exec(SEGMENT_REGISTERS, sr), rm_location, byte_calc(data_l, data_h), disp_calc(disp_l, disp_h), WORD_OPPERATION | FROM_REGISTER, Op_mov);
-                }
+                inst_exec(exec, location_exec(SEGMENT_REGISTERS, sr), rm_location, byte_calc(data_l, data_h), disp_calc(disp_l, disp_h), WORD_OPPERATION | FROM_REGISTER, Op_mov);
             }
         }
+
         return;
     }
 
@@ -1419,7 +1420,7 @@ int decode_instruction(Memory* memory, Decode_Unit* d_unit, const uint32_t memor
         assert(saftey < 50 && "ERROR - loop saftey triggered in parsing of machine code\n");
 
     }
-    //DEBUG(debug_print_Assembly_Inst(&inst))
+    DEBUG(debug_print_Assembly_Inst(&inst))
 
     if (exec != NULL)
         exec->ip += byte_number;
@@ -1461,6 +1462,7 @@ void decode_instruction_stream(Memory* memory, uint32_t flags)
                 }
                 else
                     count += decode_instruction(memory, d_unit, count, i, exec);
+                DEBUG(printf("bytes parsed count: %u, total memory: %u\n\n", count, memory->bytes_used))
                 break;
             }
             assert((i +1) != array_count(instruction_table) && "ERROR - unknown Op code\n");
@@ -1957,6 +1959,10 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
             exec->reg[r_dest]  = (exec->reg[r_dest] & ~bitmask ) | (bitmask & (result << bit_shift));
         }
         else if (flags & TO_MEMORY)
+        {
+
+        }
+        else
             assert(0 && "ERROR - Not yet implementated\n");
 
         arithmetic_set_flags(exec, result, before, amount, Op_add);

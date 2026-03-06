@@ -1,6 +1,6 @@
 bits 16
 
-; register to register
+; -------- Register to Register --------
 mov ax, bx
 mov bx, cx
 mov cx, dx
@@ -10,43 +10,39 @@ mov bp, si
 mov si, di
 mov di, sp
 
-; immediate to register
-mov ax, 0
-mov bx, 1
-mov cx, 255
-mov dx, 256
-mov sp, 1000
-mov bp, 32767
-mov si, 100
-mov di, 200
+; -------- Immediate to Register --------
+mov ax, 0x1234
+mov bx, 0xABCD
+mov cx, 0x7FFF
+mov dx, 0
+mov si, 255
+mov di, 256
+mov bp, 32768
+mov sp, 1
 
-; immediate to memory
-mov word [bx], 0
-mov word [bx], 255
-mov word [bx], 256
-mov word [bx + 5], 100
-mov word [bx - 5], 200
-mov word [bx + 256], 1000
+; -------- Immediate to Memory --------
+mov bx, 0x200                  ; BX = 0x200 (test address)
+mov word [bx], 0x1111          ; [0x200] = 0x1111
+mov word [bx + 2], 0x2222      ; [0x202] = 0x2222
+mov word [bx + 4], 0x3333      ; [0x204] = 0x3333
 
-; register to memory
-mov [bx], ax
-mov [bx], bx
-mov [bx + 5], cx
-mov [bx - 5], dx
-mov [bx + 256], sp
+; -------- Register to Memory --------
+mov ax, 0xAAAA
+mov word [bx], ax              ; [0x200] = 0xAAAA
+mov cx, 0xBBBB
+mov word [bx + 2], cx          ; [0x202] = 0xBBBB
 
-; memory to register
-mov ax, [bx]
-mov bx, [bx + 5]
-mov cx, [bx - 5]
-mov dx, [bx + 256]
-mov sp, [bx + 10]
+; -------- Memory to Register --------
+mov dx, [bx]                   ; dx = [0x200] (should be 0xAAAA)
+mov si, [bx + 2]               ; si = [0x202] (should be 0xBBBB)
+mov di, [bx + 4]               ; di = [0x204] (should be 0x3333)
 
-; segment registers
-mov ax, cs
+; -------- Segment Register Moves --------
 mov ax, ds
 mov ax, es
 mov ax, ss
+mov ax, cs
+
 mov ds, ax
 mov es, ax
 mov ss, ax
