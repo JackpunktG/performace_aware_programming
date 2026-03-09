@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <ctype.h>
 #define PAP_HELPER_IMPLEMENTATION
 #include "../pap_helper.h"
 
@@ -254,7 +255,7 @@ enum
     EA_DISP_BASE_INDEX_1,   // BP + DI + DISP, BX + SI + DISP
     EA_DISP_BASE_INDEX_2,   // BP + SI + DISP, BX + DI + DISP
 };
-const int ea_clock_table[] = { 6, 5, 9, 7, 8, 11, 12 };
+const uint8_t ea_clock_table[] = { 6, 5, 9, 7, 8, 11, 12 };
 
 typedef struct
 {
@@ -638,7 +639,10 @@ void mod_rm_effective_address(Assembly_Inst* assy, Instruction_Code* inst)
         break;
     case _8_BIT_DISPLACEMENT:
     case _16_BIT_DISPLACEMENT:
-        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "[%s + %hd]", effective_addresses[rm], disp_calc(disp_l, disp_h));
+        if (disp_calc(disp_l, disp_h) == 0)
+            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "[%s]", effective_addresses[rm]);
+        else
+            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "[%s + %hd]", effective_addresses[rm], disp_calc(disp_l, disp_h));
         break;
     }
 }
@@ -682,11 +686,36 @@ void location_extract(Register_Location* Rm, Register_Location* Reg, Instruction
     }
 }
 
-uint8_t ea_clocks(int32_t mod, int32_t rm)
+
+void add_clocks(uint32_t* flags, uint8_t clocks)
+{
+    uint32_t total_clocks = *flags >> 16;
+
+    total_clocks += clocks;
+
+    *flags = (total_clocks << 16) | (*flags & 0x0000FFFF);
+}
+
+bool number_disp(Assembly_Inst* assy)
+{
+    for (uint8_t i = 0; i < strlen(assy->opperant2); ++i)
+    {
+        if (isdigit(assy->opperant2[i]))
+            return true;
+    }
+    for (uint8_t i = 0; i < strlen(assy->opperant1); ++i)
+    {
+        if (isdigit(assy->opperant1[i]))
+            return true;
+    }
+    return false;
+}
+
+uint8_t ea_clocks(Assembly_Inst* assy, int32_t mod, int32_t rm)
 {
     if (mod == NO_DISPLACEMENT)
     {
-        if (rm == 0b111)
+        if (rm == 0b110)
             return ea_clock_table[EA_DISP_ONLY];
         else if (rm >= 0b100)
             return ea_clock_table[EA_BASE_OR_INDEX_ONLY];
@@ -696,9 +725,18 @@ uint8_t ea_clocks(int32_t mod, int32_t rm)
     else
     {
         if (rm >= 0b100)
-            return ea_clock_table[EA_DISP_BASE_OR_INDEX];
+            if (!number_disp(assy))
+                return ea_clock_table[EA_BASE_OR_INDEX_ONLY];
+            else
+                return ea_clock_table[EA_DISP_BASE_OR_INDEX];
         else
-            return ea_clock_table[(rm == 0 || rm == 0b011) ?  EA_DISP_BASE_INDEX_1 : EA_DISP_BASE_INDEX_2];
+        {
+            if (!number_disp(assy))
+                return ea_clock_table[(rm == 0 || rm == 0b011) ?  EA_BASE_INDEX_1 : EA_BASE_INDEX_2];
+            else
+                return ea_clock_table[(rm == 0 || rm == 0b011) ?  EA_DISP_BASE_INDEX_1 : EA_DISP_BASE_INDEX_2];
+
+        }
 
     }
 }
@@ -711,14 +749,35 @@ bool get_op_clock(Op_Clock* clock, Operation_Type op)
             *clock = clocks_table[i];
             return true;
         }
-    printf("WARNING - clocks table for %s hasn't yet been implementated\n", instruction_string(op));
+    printf("; WARNING - clocks table for %s hasn't yet been implementated", instruction_string(op));
     return false;
 }
 
-void ea_clock_calculation(Assembly_Inst* assy, Operation_Type op, Encoding_type encoding, int32_t mod, int32_t rm)
+bool odd_disp(Instruction_Code* inst, int32_t mod, int32_t rm)
+{
+    if (mod == REGISTER_MODE || (mod == NO_DISPLACEMENT && rm != 0b110))
+        return false;
+
+    if (ffetch(inst, Bits_W) < 1)
+        return false;
+
+    int32_t address;
+    int32_t disp_l = ffetch(inst, Bits_Disp_L);
+    if (disp_l == FIELD_NOT_SET)
+        address = (int32_t)byte_calc(ffetch(inst, Bits_Data_L), ffetch(inst, Bits_Data_H));
+    else
+        address = disp_calc(disp_l, ffetch(inst, Bits_Disp_H));
+
+    if (address % 2 == 0)
+        return false;
+    else
+        return true;
+}
+
+void ea_clock_calculation(Assembly_Inst* assy, Instruction_Code* inst, Encoding_type encoding, int32_t mod, int32_t rm, uint32_t* flags)
 {
     Op_Clock op_info;
-    if (!get_op_clock(&op_info, op))
+    if (!get_op_clock(&op_info, inst->type))
         return;
 
     for(uint8_t i = 0; i < array_count(op_info.encoding); ++i)
@@ -728,32 +787,60 @@ void ea_clock_calculation(Assembly_Inst* assy, Operation_Type op, Encoding_type 
             uint8_t ea = 0;
             if (op_info.encoding[i].EA)
             {
-                ea = ea_clocks(mod, rm);
-                snprintf(assy->clocks, MAX_SIZE_OF_OPPERANT, "%hhu + %hhx (ea) clocks", op_info.encoding[i].cloak, ea);
+                ea = ea_clocks(assy, mod, rm);
+                if (odd_disp(inst, mod, rm))
+                {
+                    snprintf(assy->clocks, MAX_SIZE_OF_OPPERANT, "%hhu + %hhu (ea) + 4(oa) clocks", op_info.encoding[i].cloak, ea);
+                    add_clocks(flags, op_info.encoding[i].cloak + ea + 4);
+                }
+                else
+                {
+                    snprintf(assy->clocks, MAX_SIZE_OF_OPPERANT, "%hhu + %hhu (ea) clocks", op_info.encoding[i].cloak, ea);
+                    add_clocks(flags, op_info.encoding[i].cloak + ea);
+                }
             }
             else
+            {
                 snprintf(assy->clocks, MAX_SIZE_OF_OPPERANT, "%hhu clocks", op_info.encoding[i].cloak);
+                add_clocks(flags, op_info.encoding[i].cloak);
+            }
+            return;
         }
 
     }
-    printf("WARNING - %s couldn't be found for %s in clocks table\n", encoding_string(encoding), instruction_string(op));
+    printf("; WARNING - %s couldn't be found for %s in clocks table", encoding_string(encoding), instruction_string(inst->type));
 }
-void print_clocks(Assembly_Inst* assy, Instruction_Code* inst)
+
+
+
+void print_clocks(Assembly_Inst* assy, Instruction_Code* inst, uint32_t* flags)
 {
     if ((strlen(assy->clocks) == 0 && inst->clocks == 0) || strlen(assy->clocks) > 0 && inst->clocks > 0)
-        printf("WARNING - Incorrect parsing of clocks");
+        printf("; WARNING - Incorrect parsing of clocks");
     else
     {
         if (strlen(assy->clocks) == 0)
-            printf("; %hhu (defined)", inst->clocks);
+        {
+            printf("; %hhu clocks", inst->clocks);
+            add_clocks(flags, inst->clocks);
+        }
         else
             printf("; %s", assy->clocks);
     }
 }
 
+static inline void swap_opperants(Assembly_Inst* assy)
+{
+    char temp[MAX_SIZE_OF_OPPERANT];
+    snprintf(temp, MAX_SIZE_OF_OPPERANT, "%s", assy->opperant1);
+    snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", assy->opperant2);
+    snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", temp);
+}
+
+
 
 void inst_exec(CP_units* exec, const Register_Location dest, const Register_Location src, const uint16_t value, const int16_t disp, const uint32_t flags, const Operation_Type op);
-void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec, const uint32_t flags)
+void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec, uint32_t* flags)
 {
     int32_t d      = ffetch(inst, Bits_D);
     int32_t w      = ffetch(inst, Bits_W);
@@ -830,8 +917,8 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec, 
                 inst_exec(exec, location_exec(SEGMENT_REGISTERS, sr), rm_location, byte_calc(data_l, data_h), disp_calc(disp_l, disp_h), WORD_OPPERATION | FROM_REGISTER, Op_mov);
             }
         }
-        if (flags & PRINT_CLOCKS)
-            ea_clock_calculation(assy, inst->type, encoding, mod, rm);
+        if (*flags & PRINT_CLOCKS)
+            ea_clock_calculation(assy, inst, encoding, mod, rm, flags);
 
         return;
     }
@@ -884,40 +971,16 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec, 
     // register/memory encoding
     if (mod != FIELD_NOT_SET && reg != FIELD_NOT_SET && rm != FIELD_NOT_SET)
     {
-        char reg_name[MAX_SIZE_OF_OPPERANT];
-        char effective_address[MAX_SIZE_OF_OPPERANT];
-
-        snprintf(reg_name, MAX_SIZE_OF_OPPERANT, "%s",
+        snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s",
                  (w > 0) ? word_registers[reg] : byte_registers[reg]);
 
 
-        if (mod == REGISTER_MODE)
-        {
-            snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "%s",
-                     (w > 0) ? word_registers[rm] : byte_registers[rm]);
-        }
-        else
-        {
-            // direct address
-            if (mod == NO_DISPLACEMENT && rm == 0b110)
-            {
-                snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%hu]", byte_calc(disp_l, disp_h));
-            }
-            else if (mod == NO_DISPLACEMENT)
-            {
-                snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%s]",
-                         effective_addresses[rm]);
-            }
-            else
-            {
-                snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%s + %hd]",
-                         effective_addresses[rm], disp_calc(disp_l, disp_h));
-            }
-        }
+        mod_rm_effective_address(assy, inst);
+
         if (d > 0)
         {
-            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", reg_name);
-            snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
+            swap_opperants(assy);
+
             if (exec != NULL)
             {
                 Register_Location rm_location;
@@ -929,8 +992,6 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec, 
         }
         else
         {
-            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
-            snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", reg_name);
             if (exec != NULL)
             {
                 Register_Location rm_location;
@@ -941,8 +1002,8 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec, 
             }
         }
 
-        if (flags & PRINT_CLOCKS)
-            ea_clock_calculation(assy, inst->type, mod == REGISTER_MODE ? Encoding_register_register : d > 0 ? Encoding_register_memory : Encoding_memory_register, mod, rm);
+        if (*flags & PRINT_CLOCKS)
+            ea_clock_calculation(assy, inst, mod == REGISTER_MODE ? Encoding_register_register : d > 0 ? Encoding_register_memory : Encoding_memory_register, mod, rm, flags);
 
         return;
     }
@@ -963,8 +1024,8 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec, 
             inst_exec(exec, rm_location, NO_LOCATION, byte_calc(data_l, data_h), disp_calc(disp_l, disp_h), (w ? WORD_OPPERATION : 0) | FROM_IMMEDIATE, Op_mov);
         }
 
-        if (flags & PRINT_CLOCKS)
-            ea_clock_calculation(assy, inst->type, mod == REGISTER_MODE ? Encoding_register_immediate : Encoding_memory_immediate, mod, rm);
+        if (*flags & PRINT_CLOCKS)
+            ea_clock_calculation(assy, inst, mod == REGISTER_MODE ? Encoding_register_immediate : Encoding_memory_immediate, mod, rm, flags);
 
         return;
     }
@@ -973,7 +1034,7 @@ void mov_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* exec, 
 
 
 
-void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst, Decode_Unit* d_unit, CP_units* exec, const uint32_t flags)
+void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst, Decode_Unit* d_unit, CP_units* exec, uint32_t* flags)
 {
     int32_t d      = ffetch(inst, Bits_D);
     int32_t w      = ffetch(inst, Bits_W);
@@ -1047,8 +1108,9 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst, Decode_Un
         uint32_t mode = (rm_location >= BX_SI && rm_location <= DIRECT_ADDRESS_LOCATION) ? (d > 0) ? FROM_MEMORY : TO_MEMORY : FROM_REGISTER;
         if (exec != NULL)
             inst_exec(exec, d > 0 ? reg_location : rm_location,  d > 0 ? rm_location : reg_location, byte_calc(data_l, data_h), NOT_USED, mode, inst->type);
-        /// TEST
 
+        if (*flags & PRINT_CLOCKS)
+            ea_clock_calculation(assy, inst, mod == REGISTER_MODE ? Encoding_register_register :  d > 0 ? Encoding_register_memory : Encoding_memory_register, mod, rm, flags);
 
         return;
     }
@@ -1092,6 +1154,10 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst, Decode_Un
             inst_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, (uint8_t)rm), NO_LOCATION, (w && s) ? disp_calc(data_l, data_h) : byte_calc(data_l, data_h), NOT_USED, FROM_IMMEDIATE, inst->type);
         }
 
+        if (*flags & PRINT_CLOCKS)
+            ea_clock_calculation(assy, inst, mod == REGISTER_MODE ? Encoding_register_immediate : Encoding_memory_immediate, mod, rm, flags);
+
+
         return;
 
     }
@@ -1106,15 +1172,6 @@ void cond_jump_construct(Assembly_Inst* assy, Instruction_Code* inst, CP_units* 
         inst_exec(exec, NO_LOCATION, NO_LOCATION, (int8_t)ffetch(inst, Bits_IP_INC8), NOT_USED, 0, inst->type);
 }
 
-
-
-static inline void swap_opperants(Assembly_Inst* assy)
-{
-    char temp[MAX_SIZE_OF_OPPERANT];
-    snprintf(temp, MAX_SIZE_OF_OPPERANT, "%s", assy->opperant1);
-    snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", assy->opperant2);
-    snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", temp);
-}
 
 enum
 {
@@ -1355,7 +1412,7 @@ void print_assembly_inst(Assembly_Inst* assy)
         printf("%s %s, %s", instruction_string(assy->mnemonic), assy->opperant1, assy->opperant2);
 }
 
-void construct_assembly_inst(Instruction_Code* inst, Decode_Unit* d_unit, CP_units* exec, const uint32_t flags)
+void construct_assembly_inst(Instruction_Code* inst, Decode_Unit* d_unit, CP_units* exec, uint32_t* flags)
 {
     Assembly_Inst assy;
     memset(&assy, 0, sizeof(Assembly_Inst));
@@ -1432,8 +1489,8 @@ void construct_assembly_inst(Instruction_Code* inst, Decode_Unit* d_unit, CP_uni
         if (exec != NULL)
             print_register_change(&old_state, exec);
 
-        if (flags & PRINT_CLOCKS)
-            print_clocks(&assy, inst);
+        if (*flags & PRINT_CLOCKS)
+            print_clocks(&assy, inst, flags);
 
         printf("\n");
     }
@@ -1467,7 +1524,7 @@ void unset_bits_field(Instruction_Code* inst, Bits_Usage field)
 }
 
 
-int decode_instruction(Memory* memory, Decode_Unit* d_unit, const uint32_t memory_index, const uint32_t inst_index, CP_units* exec, const uint32_t flags)
+int decode_instruction(Memory* memory, Decode_Unit* d_unit, const uint32_t memory_index, const uint32_t inst_index, CP_units* exec, uint32_t* flags)
 {
     // copying the "templete" instruction
     Instruction_Code inst = instruction_table[inst_index];
@@ -1603,7 +1660,7 @@ bool op_code_match(const uint8_t byte, Instruction_Code* inst)
 }
 
 
-void decode_instruction_stream(Memory* memory, const uint32_t flags)
+void decode_instruction_stream(Memory* memory, uint32_t flags)
 {
     Decode_Unit* d_unit = decode_unit_init();
     uint32_t count      = 0;
@@ -1622,11 +1679,11 @@ void decode_instruction_stream(Memory* memory, const uint32_t flags)
             {
                 if (exec != NULL)
                 {
-                    decode_instruction(memory, d_unit, exec->ip, i, exec, flags);
+                    decode_instruction(memory, d_unit, exec->ip, i, exec, &flags);
                     count = exec->ip;
                 }
                 else
-                    count += decode_instruction(memory, d_unit, count, i, exec, flags);
+                    count += decode_instruction(memory, d_unit, count, i, exec, &flags);
                 DEBUG(printf("bytes parsed count: %u, total memory: %u\n\n", count, memory->bytes_used))
                 break;
             }
@@ -1641,6 +1698,11 @@ void decode_instruction_stream(Memory* memory, const uint32_t flags)
 
         if (flags & DUMP_MEMORY_AFTER_EXEC)
             dump_memory(memory);
+    }
+
+    if (flags & PRINT_CLOCKS)
+    {
+        printf("; Total est. clocks: %u\n", (flags >> 16));
     }
 
     free(d_unit);

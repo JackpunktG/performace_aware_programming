@@ -17,12 +17,17 @@ int main(int argc, char* argv[])
     if (argc > 2)
     {
 
+        printf("; Disassembly of %s\nbits 16\n\n", argv[2]);
+
         if (strcmp(argv[1], "-exec") == 0)
             flags = EXECUTION_OF_INSTRUCTION;
         else if (strcmp(argv[1], "-dump") == 0)
             flags = EXECUTION_OF_INSTRUCTION | DUMP_MEMORY_AFTER_EXEC;
         else if (strcmp(argv[1], "-clocks") == 0)
+        {
             flags = PRINT_CLOCKS;
+            printf("; Clocks only an estimate real world typically withing 5 - 10%%\n");
+        }
         else
         {
             printf("ERROR - Unknown flag %s\n", argv[1]);
@@ -34,9 +39,13 @@ int main(int argc, char* argv[])
     else
     {
 
-        if (strcmp(argv[1], "-print_ops"))
+        if (strcmp(argv[1], "-print_ops") == 0)
         {
             print_inst_table();
+            return 0;
+        }
+        else if (strcmp(argv[1], "-print_clocks") == 0)
+        {
             print_clocks_table();
             return 0;
         }
