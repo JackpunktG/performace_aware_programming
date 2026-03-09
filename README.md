@@ -44,3 +44,8 @@ Passing the '-dump' flag will output the memory at the end of our simulation to 
 ```bash
 8086_sim -dump <assembly_file> 
 ```
+
+Passing the '-clocks' will output an estimation for how many clock cycles the progam would take to complete.
+```bash
+8086_sim -clocks <assembly_file> 
+```
