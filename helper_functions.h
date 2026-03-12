@@ -2,8 +2,8 @@
    Following along with cassy Muratori performace awareness programming course,
    a header lib for helper functions.
     ======================================================================== */
-#ifndef PAP_HELPER_H
-#define PAP_HELPER_H
+#ifndef PERFORMACE_AWARE_PROGRAMMING_HELPER_H
+#define PERFORMACE_AWARE_PROGRAMMING_HELPER_H
 
 
 #include <stdlib.h>
@@ -71,8 +71,8 @@ void print_binary_8(const uint8_t var_8, uint8_t new_line);
 
 
 
-#endif // PAP_HELPER_H
-#ifdef PAP_HELPER_IMPLEMENTATION
+#endif // PERFORMACE_AWARE_PROGRAMMING_HELPER_H
+#ifdef PERFORMACE_AWARE_PROGRAMMING_HELPER_IMPLEMENTATION
 
 void start_timer(Timer* timer)
 {

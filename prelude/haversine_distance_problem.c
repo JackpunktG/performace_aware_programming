@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <math.h>
-#define PAP_HELPER_IMPLEMENTATION
-#include "../pap_helper.h"
+#define PERFORMANCE_AWARE_PROGRAMMING_HELPER_IMPLEMENTATION
+#include "../helper_functions.h"
 #include <string.h>
 
 #define EARTH_RADIUS_KM 6372.8

@@ -5,8 +5,8 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <ctype.h>
-#define PAP_HELPER_IMPLEMENTATION
-#include "../pap_helper.h"
+#define PERFORMANCE_AWARE_PROGRAMMING_HELPER_IMPLEMENTATION
+#include "../helper_functions.h"
 
 #define array_count(Array) (sizeof(Array) / sizeof((Array)[0]))
 #ifdef DEBUG
