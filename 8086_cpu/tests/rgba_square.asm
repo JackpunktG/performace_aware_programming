@@ -18,4 +18,3 @@ y_loop_start:
 	
 	sub dx, 1
 	jnz y_loop_start
-

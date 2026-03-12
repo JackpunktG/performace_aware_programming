@@ -203,6 +203,7 @@ INST(xchg, {B(10010), REG})
 #undef INST
 #undef INSTRUCTION
 
+#undef BL
 #undef B
 #undef D
 #undef S

@@ -12,6 +12,9 @@ int main(int argc, char* argv[])
     //print_inst_table();
     Memory memory = {0};
 
+    Timer t = {0};
+
+    start_timer(&t);
 
     uint32_t flags = 0;
     if (argc > 2)
@@ -56,6 +59,8 @@ int main(int argc, char* argv[])
         decode_instruction_stream(&memory, flags);
     }
 
+    end_timer(&t);
+    timer_print_sec(&t);
     free_memory(&memory);
     return 0;
 }

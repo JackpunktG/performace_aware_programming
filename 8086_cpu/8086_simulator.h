@@ -1044,8 +1044,6 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst, Decode_Un
     int32_t s      = ffetch(inst, Bits_S);
     int32_t data_l = ffetch(inst, Bits_Data_L);
     int32_t data_h = ffetch(inst, Bits_Data_H);
-    int32_t disp_l = ffetch(inst, Bits_Disp_L);
-    int32_t disp_h = ffetch(inst, Bits_Disp_H);
 
     // immediate to accumulator
     if (mod == FIELD_NOT_SET && reg == FIELD_NOT_SET && rm == FIELD_NOT_SET)
@@ -1064,43 +1062,12 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst, Decode_Un
     // Reg/Mem with register to either
     if (d != FIELD_NOT_SET)
     {
-        char reg_name[MAX_SIZE_OF_OPPERANT];
-        char effective_address[MAX_SIZE_OF_OPPERANT];
+        snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", (w > 0) ? word_registers[reg] : byte_registers[reg]);
 
-        snprintf(reg_name, MAX_SIZE_OF_OPPERANT, "%s",
-                 (w > 0) ? word_registers[reg] : byte_registers[reg]);
-
-        switch (mod)
-        {
-        case REGISTER_MODE:
-            snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "%s", (w > 0) ? word_registers[rm] : byte_registers[rm]);
-            break;
-        case NO_DISPLACEMENT:
-            if (rm == 0b110)
-                snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%hu]", byte_calc(disp_l, disp_h));
-            else
-                snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%s]",
-                         effective_addresses[rm]);
-            break;
-        case _8_BIT_DISPLACEMENT:
-        case _16_BIT_DISPLACEMENT:
-            snprintf(effective_address, MAX_SIZE_OF_OPPERANT, "[%s + %hd]", effective_addresses[rm], disp_calc(disp_l, disp_h));
-            break;
-        default:
-            assert(0);
-        }
+        mod_rm_effective_address(assy, inst);
 
         if (d > 0)
-        {
-            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", reg_name);
-            snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
-        }
-        else
-        {
-            snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", effective_address);
-            snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s", reg_name);
-        }
-
+            swap_opperants(assy);
 
         Register_Location rm_location;
         Register_Location reg_location;
@@ -1118,28 +1085,8 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst, Decode_Un
     // immediate to register/memory
     if (ffetch(inst, Bits_Literal) != FIELD_NOT_SET)
     {
-        char addr_loc[MAX_SIZE_OF_OPPERANT];
+        mod_rm_effective_address(assy, inst);
 
-        switch (mod)
-        {
-        case REGISTER_MODE:
-            snprintf(addr_loc, MAX_SIZE_OF_OPPERANT, "%s", (w > 0) ? word_registers[rm] : byte_registers[rm]);
-            break;
-        case NO_DISPLACEMENT:
-            if (rm == 0b110)
-                snprintf(addr_loc, MAX_SIZE_OF_OPPERANT, "[%hu]", byte_calc(disp_l, disp_h));
-            else
-                snprintf(addr_loc, MAX_SIZE_OF_OPPERANT, "[%s]", effective_addresses[rm]);
-            break;
-        case _8_BIT_DISPLACEMENT:
-        case _16_BIT_DISPLACEMENT:
-            snprintf(addr_loc, MAX_SIZE_OF_OPPERANT, "[%s + %hd]", effective_addresses[rm], disp_calc(disp_l, disp_h));
-            break;
-        default:
-            assert(0);
-        }
-
-        snprintf(assy->opperant1, MAX_SIZE_OF_OPPERANT, "%s", addr_loc);
         // 8-bit immediate, sign extended to 16bits
         if (w && s)
             snprintf(assy->opperant2, MAX_SIZE_OF_OPPERANT, "%s %hd", (w > 0) ? "word" : "byte", disp_calc(data_l, data_h));
@@ -1150,13 +1097,10 @@ void arithmetic_construct(Assembly_Inst* assy, Instruction_Code* inst, Decode_Un
         inst->type = (Operation_Type)(inst->type + ffetch(inst, Bits_Literal));
 
         if (exec != NULL)
-        {
             inst_exec(exec, location_exec(w ? WORD_REGISTERS : BYTE_REGISTERS, (uint8_t)rm), NO_LOCATION, (w && s) ? disp_calc(data_l, data_h) : byte_calc(data_l, data_h), NOT_USED, FROM_IMMEDIATE, inst->type);
-        }
 
         if (*flags & PRINT_CLOCKS)
             ea_clock_calculation(assy, inst, mod == REGISTER_MODE ? Encoding_register_immediate : Encoding_memory_immediate, mod, rm, flags);
-
 
         return;
 
@@ -1474,7 +1418,7 @@ void construct_assembly_inst(Instruction_Code* inst, Decode_Unit* d_unit, CP_uni
                 snprintf(assy.opperant1, MAX_SIZE_OF_OPPERANT, "%hhu", (uint8_t)ffetch(inst, Bits_Data_L));
             break;
         default:
-            assert(0);
+            assert(0 && "ERROR - unknown Op_code during assembly construction\n");
         }
 
     assy.mnemonic = inst->type;
@@ -1659,7 +1603,6 @@ bool op_code_match(const uint8_t byte, Instruction_Code* inst)
     return op_code_test == inst->field[0].value;
 }
 
-
 void decode_instruction_stream(Memory* memory, uint32_t flags)
 {
     Decode_Unit* d_unit = decode_unit_init();
@@ -1668,7 +1611,6 @@ void decode_instruction_stream(Memory* memory, uint32_t flags)
     CP_units* exec = NULL;
     if (flags & EXECUTION_OF_INSTRUCTION)
         exec = registers_init(memory);
-
 
     while(count < memory->bytes_used)
     {
@@ -2105,21 +2047,21 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
                 }
                 else if (flags & FROM_REGISTER)
                 {
-                    printf("memory_index: %hu\n", memory_index);
+                    //printf("memory_index: %hu\n", memory_index);
                     uint8_t src_shift  = 0;
                     uint8_t r_src      = at_reg(src, NULL, &src_shift);
-                    printf("src reg: %hu\n", (src));
-                    printf("shift value: %hhu\n", src_shift);
-                    printf("src value: %hhu\n", (exec->reg[r_src] >> src_shift));
-                    printf("reg value: %hx\n", (exec->reg[r_src]));
-                    printf("reg value: %hx\n", exec->reg[ax]);
+                    //printf("src reg: %hu\n", (src));
+                    //printf("shift value: %hhu\n", src_shift);
+                    //printf("src value: %hhu\n", (exec->reg[r_src] >> src_shift));
+                    //printf("reg value: %hx\n", (exec->reg[r_src]));
+                    //printf("reg value: %hx\n", exec->reg[ax]);
                     if (flags & WORD_OPPERATION)
                     {
                         exec->memory->data[memory_index]    = (uint8_t)(exec->reg[r_src] >> src_shift);
                         exec->memory->data[memory_index +1] = (uint8_t)((exec->reg[r_src] >> src_shift) >> 8);
                     }
                     else
-                        exec->memory->data[memory_index]    = (uint8_t)(exec->reg[r_src] >> src_shift);
+                        uint8_t i = (uint8_t)(exec->reg[r_src] >> src_shift);
                 }
                 else
                     assert(0);
@@ -2199,7 +2141,7 @@ void inst_exec(CP_units* exec, const Register_Location dest, const Register_Loca
 
         }
         else
-            assert(0 && "ERROR - Not yet implementated\n");
+            assert(0 && "ERROR - im executing Op_add\n");
 
         arithmetic_set_flags(exec, result, before, amount, Op_add);
         break;

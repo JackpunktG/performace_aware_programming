@@ -1,34 +1,35 @@
 #include <stdio.h>
 #include <math.h>
 #define PAP_HELPER_IMPLEMENTATION
-#include "pap_helper.h"
+#include "../pap_helper.h"
 #include <string.h>
 
-#define EARTH_RADIUS_KM 6371.0
+#define EARTH_RADIUS_KM 6372.8
 
 // Function to convert degrees to radians
-double deg2rad(double deg)
+static inline double deg2rad(double deg)
 {
     return (deg * M_PI / 180.0);
 }
 
-double haversine_distance(double lat1d, double lon1d, double lat2d, double lon2d)
+static inline double squared(double x)
 {
-    // Convert all degrees to radians
-    double lat1r = deg2rad(lat1d);
-    double lon1r = deg2rad(lon1d);
-    double lat2r = deg2rad(lat2d);
-    double lon2r = deg2rad(lon2d);
+    return x * x;
+}
 
-    // Calculate the difference in latitudes and longitudes
-    double dLat = lat2r - lat1r;
-    double dLon = lon2r - lon1r;
+double haversine_distance(double x1, double y1, double x2, double y2)
+{
+    // latitudes to radians
+    double lat1r = deg2rad(x1);
+    double lat2r = deg2rad(x2);
+
+    // Calculate the difference in latitudes and longitudes conerted to radians
+    double dLat = deg2rad(x2 - x1);
+    double dLon = deg2rad(y2 - y1);
 
     // Apply the Haversine formula
-    double a = sin(dLat / 2) * sin(dLat / 2) +
-               cos(lat1r) * cos(lat2r) *
-               sin(dLon / 2) * sin(dLon / 2);
-    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    double a = squared(sin(dLat / 2)) + cos(lat1r) * cos(lat2r) * squared(sin(dLon / 2));
+    double c = 2 * asin(sqrt(a));
     double distance = EARTH_RADIUS_KM * c;
 
     return distance;
@@ -71,10 +72,11 @@ void calculate_avg_prologue(const char* input_stream, uint32_t pts_count)
     Timer t1, t2;
     start_timer(&t1);
     double* points_on_earth = (double*)malloc(sizeof(double) * pts_count * 4);
-    uint32_t count = 0;
-    FILE* input = strcmp(input_stream, "stdin") == 0 ? stdin : fopen(input_stream, "r");
-    char buffer[128] = {0};
-    uint32_t line = 1;
+    uint32_t count          = 0;
+    FILE* input             = strcmp(input_stream, "stdin") == 0 ? stdin : fopen(input_stream, "r");
+    char buffer[128]        = {0};
+    uint32_t line           = 1;
+
     while (fgets(buffer, sizeof(buffer), input))
     {
         if (sscanf(buffer, "{\"x1\":%lf, \"y1\":%lf, \"x2\":%lf, \"y2\":%lf},",
@@ -82,19 +84,25 @@ void calculate_avg_prologue(const char* input_stream, uint32_t pts_count)
                    &points_on_earth[count +2], &points_on_earth[count +3]) == 4)
             count += 4;
     }
+
     if(strcmp(input_stream, "stdin") != 0)
         fclose(input);
+
     end_timer(&t1);
     start_timer(&t2);
+
     double distance = 0;
     for(uint i = 0; i < count; i +=4)
     {
         distance += haversine_distance(points_on_earth[i], points_on_earth[i +1],
                                        points_on_earth[i +2], points_on_earth[i +3]);
     }
+
     printf("Avg: %0.2fkm\n", distance / pts_count);
     free(points_on_earth);
+
     end_timer(&t2);
+
     printf("Time taking:\n\tParse info: %f sec\n\tHarversine Calc: %f sec\n*ns per Haversine Calc %0.3f\n\tTotal: %f sec\n",
            timer_sec(&t1), timer_sec(&t2),(double)timer_nano(&t2)  / pts_count, timer_sec(&t1) + timer_sec(&t2));
 }
