@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <math.h>
-#define PERFORMANCE_AWARE_PROGRAMMING_HELPER_IMPLEMENTATION
+#define PERFORMACE_AWARE_PROGRAMMING_HELPER_IMPLEMENTATION
 #include "../helper_functions.h"
 #include <string.h>
 
@@ -75,7 +75,6 @@ void calculate_avg_prologue(const char* input_stream, uint32_t pts_count)
     uint32_t count          = 0;
     FILE* input             = strcmp(input_stream, "stdin") == 0 ? stdin : fopen(input_stream, "r");
     char buffer[128]        = {0};
-    uint32_t line           = 1;
 
     while (fgets(buffer, sizeof(buffer), input))
     {

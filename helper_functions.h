@@ -6,12 +6,24 @@
 #define PERFORMACE_AWARE_PROGRAMMING_HELPER_H
 
 
+#ifdef DEBUG
+#define DEBUG_PRINT(print) \
+    do { \
+        fprintf(stderr, "[DEBUG] %s:%d:%s(): ", __FILE__, __LINE__, __func__); \
+        print; \
+    } while(0)
+#else
+#define DEBUG_PRINT(print)
+#endif
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>
+#include <stdbool.h>
+#include <sys/stat.h>
 
 /* ========================================================================
     Timer
@@ -69,6 +81,28 @@ void print_binary_32(const uint32_t var_32, uint8_t new_line);
 void print_binary_16(const uint16_t var_16, uint8_t new_line);
 void print_binary_8(const uint8_t var_8, uint8_t new_line);
 
+
+/* ========================================================================
+    String
+    ======================================================================== */
+
+typedef struct
+{
+    uint64_t count;
+    uint8_t* data;
+} String;
+
+#define CONSTANT_STRING(String) {sizeof(String) -1, (uint8_t*)(String)}
+#define STRLEN(String) (String->count)
+
+static inline bool are_equal(String* a, String* b);
+static inline bool in_bounds(String* a, uint64_t index);
+static inline void string_print(String* string);
+static inline void string_println(String* string);
+static inline String* string_init(uint64_t count, Arena* arena);
+//assumes malloc creation
+static inline void string_destroy(String* string);
+static String* read_entire_file(char* file_name, Arena* arena);
 
 
 #endif // PERFORMACE_AWARE_PROGRAMMING_HELPER_H
@@ -339,5 +373,85 @@ void print_binary_8(const uint8_t var_8, uint8_t new_line)
     }
     if (new_line == NEWLINE_P)
         printf("\n");
+}
+
+
+static inline bool are_equal(String* a, String* b)
+{
+    if(a->count != b->count)
+        return false;
+
+    for(uint64_t index = 0; index < a->count; ++index)
+    {
+        if(a->data[index] != b->data[index])
+            return false;
+    }
+    return true;
+}
+static inline bool in_bounds(String* a, uint64_t index)
+{
+    return index < a->count;
+}
+
+static inline String* string_init(uint64_t count, Arena* arena)
+{
+    String* s = NULL;
+
+    if (arena != NULL)
+        s = (String*)arena_alloc(arena, sizeof(String) + (sizeof(uint8_t) *count), NULL);
+    else
+        s = (String*)malloc(sizeof(String) + (sizeof(uint8_t) *count));
+
+    s->data = (uint8_t*)(s +1);
+    s->count = count;
+
+    return s;
+}
+
+static inline void string_destroy(String* string)
+{
+    free(string);
+    string = NULL;
+}
+
+static String* read_entire_file(char* file_name, Arena* arena)
+{
+    String* s = NULL;
+
+    FILE* file = fopen(file_name, "rb");
+
+    if(file)
+    {
+        struct stat file_info;
+        stat(file_name, &file_info);
+
+        s = string_init(file_info.st_size, arena);
+        if(s->data)
+        {
+            if (fread(s->data, s->count, 1, file) != 1)
+            {
+                fprintf(stderr, "ERROR - unable to read file %s\n", file_name);
+                if (arena == NULL)
+                    string_destroy(s);
+            }
+        }
+        fclose(file);
+    }
+    else
+        fprintf(stderr, "ERROR - unable to open file %s\n", file_name);
+
+    return s;
+}
+
+static inline void string_print(String* string)
+{
+    for (uint64_t i = 0; i < string->count; ++i)
+        printf("%c", string->data[i]);
+}
+static inline void string_println(String* string)
+{
+    for (uint64_t i = 0; i < string->count; ++i)
+        printf("%c", string->data[i]);
+    printf("\n");
 }
 #endif // PAP_HELPER_H_IMPLEMENTATION
