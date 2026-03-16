@@ -23,7 +23,6 @@ run_test() {
     # assemble original
     nasm -f bin "$ASM_FILE" -o "$ORIGINAL"
 
-    # run through your disassembler
     ./out "$ORIGINAL" > "$DISASSEMBLED"
 
     # reassemble the disassembled output
