@@ -24,6 +24,12 @@
 #include <time.h>
 #include <stdbool.h>
 #include <sys/stat.h>
+#include <math.h>
+
+/* ========================================================================
+    Haversine Calculation
+    ======================================================================== */
+double calculate_haversine(double* points, uint64_t count);
 
 /* ========================================================================
     Timer
@@ -40,6 +46,7 @@ void timer_print_nano(Timer* timer);
 double timer_sec(Timer* timer);
 uint64_t timer_nano(Timer* timer);
 void compare_timers(Timer* timer1, Timer* timer2);
+
 
 /* ========================================================================
     Arena Memory Allocator
@@ -454,4 +461,44 @@ static inline void string_println(String* string)
         printf("%c", string->data[i]);
     printf("\n");
 }
+
+
+#define EARTH_RADIUS_KM 6372.8
+// Function to convert degrees to radians
+static inline double deg2rad(double deg)
+{
+    return (deg * M_PI / 180.0);
+}
+
+static inline double squared(double x)
+{
+    return x * x;
+}
+
+double haversine_distance(double x1, double y1, double x2, double y2)
+{
+    // latitudes to radians
+    double lat1r = deg2rad(x1);
+    double lat2r = deg2rad(x2);
+
+    // Calculate the difference in latitudes and longitudes conerted to radians
+    double dLat = deg2rad(x2 - x1);
+    double dLon = deg2rad(y2 - y1);
+
+    // Apply the Haversine formula
+    double a = squared(sin(dLat / 2)) + cos(lat1r) * cos(lat2r) * squared(sin(dLon / 2));
+    double c = 2 * asin(sqrt(a));
+    double distance = EARTH_RADIUS_KM * c;
+
+    return distance;
+}
+double calculate_haversine(double* points, uint64_t count)
+{
+    double distance = 0;
+    for(uint64_t i = 0; i < count *4; i +=4)
+        distance += haversine_distance(points[i], points[i +1], points[i +2], points[i +3]);
+
+    return distance / count;
+}
+
 #endif // PAP_HELPER_H_IMPLEMENTATION
