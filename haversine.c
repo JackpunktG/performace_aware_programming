@@ -62,7 +62,7 @@ double* create_cluster_points(uint8_t clusters, uint64_t count)
         point[i].x = (float)rand_double(MIN_X_LAT, MAX_X_LAT);
         point[i].y = (float)rand_double(MIN_Y_LON, MAX_Y_LON);
         point[i].r = (float)rand_double(i % 2 == 0 ? 1.5 : 100, i % 2 == 0 ? 100 : 500);
-        printf("Cluster %d - x: %0.2f, y: %0.2f, r: %0.2f\n", i, point[i].x, point[i].y, point[i].r);
+        DEBUG_PRINT(printf("Cluster %d - x: %0.2f, y: %0.2f, r: %0.2f\n", i, point[i].x, point[i].y, point[i].r))
     }
 
     double* points = (double*)malloc(sizeof(double) * count * 4);
@@ -99,11 +99,12 @@ double* create_cluster_points(uint8_t clusters, uint64_t count)
 
 enum
 {
-    FLAG_GENERATE   = (1<<0),
-    FLAG_CLUSTER    = (1<<1),
-    FLAG_CALCULATE  = (1<<2),
-    FLAG_JSON_BASIC = (1<<3),
-    FLAG_NO_REAULT  = (1<<4)
+    FLAG_GENERATE     = (1<<0),
+    FLAG_CLUSTER      = (1<<1),
+    FLAG_CALCULATE    = (1<<2),
+    FLAG_JSON_BASIC   = (1<<3),
+    FLAG_NO_REAULT    = (1<<4),
+    FLAG_ARENA_MEMORY = (1<<5),
 };
 
 int main(int argc, char* argv[])
@@ -119,6 +120,7 @@ int main(int argc, char* argv[])
     uint32_t flags  = 0;
     char* filename  = NULL;
     char* count_str = NULL;
+    Arena* arena    = NULL;
 
     for (uint8_t i = 1; i < argc; ++i)
     {
@@ -126,12 +128,14 @@ int main(int argc, char* argv[])
             flags |= FLAG_GENERATE;
         else if (strcmp(argv[i], "cluster") == 0)
             flags |= FLAG_CLUSTER;
-        else if (strcmp(argv[1], "-c") == 0 || strcmp(argv[1], "--calculate") == 0)
+        else if (strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--calculate") == 0)
             flags |= FLAG_CALCULATE;
         else if (strcmp(argv[i], "json_basic") == 0)
             flags |= FLAG_JSON_BASIC;
         else if (strcmp(argv[i], "no_result") == 0)
             flags |= FLAG_NO_REAULT;
+        else if (strcmp(argv[i], "--arena") == 0 || strcmp(argv[i], "-a") == 0)
+            flags |= FLAG_ARENA_MEMORY;
         else
         {
             // assume the first unknown is filename - second count_str
@@ -169,12 +173,23 @@ int main(int argc, char* argv[])
     }
     else if (flags & FLAG_CALCULATE)
     {
+        assert(filename != NULL && "ERROR - no filename given\n");
+
         Json_Element* json = NULL;
-        json = parse_json(argv[1], NULL);
+
+        if (flags & FLAG_ARENA_MEMORY)
+            arena = (Arena*)arena_init(ARENA_BLOCK_SIZE, 8);
+
+
+        String* json_string = NULL;
+        json = parse_json(filename, &json_string, arena);
         if (json)
         {
             json_nodes_print(json);
+
+            json_destroy(json, json_string, arena);
         }
+
     }
     else
         fprintf(stderr, "ERROR - args unknown\n");

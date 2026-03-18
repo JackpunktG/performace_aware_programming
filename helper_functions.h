@@ -10,8 +10,8 @@
 #define DEBUG_PRINT(print) \
     do { \
         fprintf(stderr, "[DEBUG] %s:%d:%s(): ", __FILE__, __LINE__, __func__); \
-        print; \
-    } while(0)
+        (print); \
+    } while(0);
 #else
 #define DEBUG_PRINT(print)
 #endif
@@ -405,11 +405,16 @@ static inline String* string_init(uint64_t count, Arena* arena)
     String* s = NULL;
 
     if (arena != NULL)
+    {
         s = (String*)arena_alloc(arena, sizeof(String) + (sizeof(uint8_t) *count), NULL);
+        s->data = (uint8_t*)(s +1);
+    }
     else
-        s = (String*)malloc(sizeof(String) + (sizeof(uint8_t) *count));
+    {
+        s = (String*)malloc(sizeof(String));
+        s->data = (uint8_t*)malloc((sizeof(uint8_t) *count));
+    }
 
-    s->data = (uint8_t*)(s +1);
     s->count = count;
 
     return s;
@@ -417,6 +422,7 @@ static inline String* string_init(uint64_t count, Arena* arena)
 
 static inline void string_destroy(String* string)
 {
+    free(string->data);
     free(string);
     string = NULL;
 }

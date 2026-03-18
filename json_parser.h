@@ -291,10 +291,38 @@ Json_Element* parse_json_element(Json_Parser* parser, String label, Json_Token t
     return elem;
 }
 
-static Json_Element* parse_json(char* json_file, Arena* arena)
+static void json_free(Json_Element* json)
+{
+    if (json->first_sub_elem != NULL)
+        json_free(json->first_sub_elem);
+    if (json->next_elem != NULL)
+        json_free(json->next_elem);
+    free(json);
+}
+
+static void json_destroy(Json_Element* json, String* json_string, Arena* arena)
+{
+    if (arena != NULL)
+    {
+        arena_destroy(arena);
+        arena = NULL;
+        json  = NULL;
+
+        return;
+    }
+    json_free(json);
+    string_destroy(json_string);
+
+    json = NULL;
+}
+
+static Json_Element* parse_json(char* json_file, String** parser_out,  Arena* arena)
 {
     Json_Parser parser = load_json(json_file, arena);
     String label = {0};
+
+    // to free the Json File String
+    *parser_out = parser.source;
 
     return parse_json_element(&parser, label, get_json_token(&parser), arena);
 }
@@ -325,7 +353,8 @@ static void json_nodes_print(Json_Element* elem)
         bool first         = true;
         while(next != NULL)
         {
-            printf("%s", first ? "\t" : ", ");
+            if (!first)
+                printf(", ");
             string_print(&next->label);
             printf(": ");
             string_print(&next->value);
