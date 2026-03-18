@@ -316,6 +316,37 @@ static void json_destroy(Json_Element* json, String* json_string, Arena* arena)
     json = NULL;
 }
 
+typedef enum
+{
+    JVT_INT,
+    JVT_DOUBLE
+} Json_Value_Type;
+void* get_json_value(Json_Element* json, String label, Json_Value_Type type, Arena* arena)
+{
+    Json_Element* next = json;
+    void* result = malloc(sizeof(type) * 100);
+    while(next != NULL)
+    {
+        if (are_equal(&next->label, &label))
+        {
+            printf("SAMR)\n");
+            break;
+        }
+
+    }
+    return NULL;
+}
+
+static Json_Element* get_json_element(Json_Element* json, String label)
+{
+    for (Json_Element* search = json->first_sub_elem; search; search = search->next_elem)
+    {
+        if (are_equal(&search->label, &label))
+            return search;
+    }
+    return NULL;
+}
+
 static Json_Element* parse_json(char* json_file, String** parser_out,  Arena* arena)
 {
     Json_Parser parser = load_json(json_file, arena);

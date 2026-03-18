@@ -99,7 +99,7 @@ typedef struct
     uint8_t* data;
 } String;
 
-#define CONSTANT_STRING(String) {sizeof(String) -1, (uint8_t*)(String)}
+#define STR(litteral) (String){sizeof(litteral) -1, (uint8_t*)(litteral)}
 #define STRLEN(String) (String->count)
 
 static inline bool are_equal(String* a, String* b);

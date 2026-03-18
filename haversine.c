@@ -96,6 +96,44 @@ double* create_cluster_points(uint8_t clusters, uint64_t count)
     return points;
 }
 
+double* get_points_from_json(Json_Element* json, uint64_t* count_out, Arena* arena)
+{
+    Json_Element* points_on_earth = get_json_element(json, STR("points_on_earth"));
+    Json_Element* next            = points_on_earth->first_sub_elem;
+
+    uint64_t count = 0;
+    while (next != NULL)
+    {
+        ++count;
+        next = next->next_elem;
+    }
+
+    double* points = NULL;
+    if (arena != NULL)
+        points = (double*)arena_alloc(arena, sizeof(double) * count *4, NULL);
+    else
+        points = (double*)malloc(sizeof(double) * count *4);
+
+    uint64_t test =0;
+    next = points_on_earth->first_sub_elem;
+    for (uint64_t i = 0; i < count; ++i)
+    {
+        Json_Element* point_node = next->first_sub_elem;
+        while (point_node != NULL)
+        {
+            ++test;
+            // get the vaules
+            point_node = point_node->next_elem;
+        }
+        next = next->next_elem;
+    }
+
+
+
+    printf("test: %lu, count: %lu\n", test, count);
+    return points;
+}
+
 
 enum
 {
@@ -186,6 +224,8 @@ int main(int argc, char* argv[])
         if (json)
         {
             json_nodes_print(json);
+            uint64_t count;
+            get_points_from_json(json, &count, arena);
 
             json_destroy(json, json_string, arena);
         }
