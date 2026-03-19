@@ -96,6 +96,25 @@ double* create_cluster_points(uint8_t clusters, uint64_t count)
     return points;
 }
 
+static inline bool almost_equal(float a, float b)
+{
+    return a == b;
+}
+
+void test_json_haversine(double* points, uint64_t count, Json_Element* json)
+{
+    double result = calculate_haversine(points, count);
+
+
+    double truth_result = get_double_json_value(get_json_element(json, STR("result")));
+
+    if (almost_equal((float)result, (float)truth_result))
+        printf("result is the same!! Haversine avg: %0.10f\n", (float)result);
+    else
+        printf("results differ... calculated: %0.10f, json truth: %0.10f\n", (float)result, (float)truth_result);
+
+}
+
 double* get_points_from_json(Json_Element* json, uint64_t* count_out, Arena* arena)
 {
     Json_Element* points_on_earth = get_json_element(json, STR("points_on_earth"));
@@ -114,23 +133,22 @@ double* get_points_from_json(Json_Element* json, uint64_t* count_out, Arena* are
     else
         points = (double*)malloc(sizeof(double) * count *4);
 
-    uint64_t test =0;
+    uint64_t index =0;
     next = points_on_earth->first_sub_elem;
     for (uint64_t i = 0; i < count; ++i)
     {
         Json_Element* point_node = next->first_sub_elem;
         while (point_node != NULL)
         {
-            ++test;
-            // get the vaules
+            points[index++] = get_double_json_value(point_node);
+
             point_node = point_node->next_elem;
         }
         next = next->next_elem;
     }
 
+    *count_out = count;
 
-
-    printf("test: %lu, count: %lu\n", test, count);
     return points;
 }
 
@@ -144,9 +162,13 @@ enum
     FLAG_NO_REAULT    = (1<<4),
     FLAG_ARENA_MEMORY = (1<<5),
 };
-
+//#include <sys/resource.h>
 int main(int argc, char* argv[])
 {
+    // struct rlimit rl;
+    // getrlimit(RLIMIT_STACK, &rl);
+    // rl.rlim_cur = 256 * 1024 * 1024;  // 256 MB
+    // setrlimit(RLIMIT_STACK, &rl);
 
     if (argc < 2)
     {
@@ -159,6 +181,7 @@ int main(int argc, char* argv[])
     char* filename  = NULL;
     char* count_str = NULL;
     Arena* arena    = NULL;
+    Timer timer     = {0};
 
     for (uint8_t i = 1; i < argc; ++i)
     {
@@ -190,20 +213,21 @@ int main(int argc, char* argv[])
     {
         assert(filename != NULL && "ERROR - no amount given\n");
 
-        double* points = NULL;
-        uint64_t count = atoi(filename);
+        double* points         = NULL;
+        uint64_t count         = atoi(filename);
+        uint64_t cluster_count = 0;
 
         if (flags & FLAG_CLUSTER)
         {
             assert(count_str != NULL && "ERROR - no cluster amount given\n");
-            uint64_t cluster_count = atoi(count_str);
+            cluster_count = atoi(count_str);
             points = create_cluster_points(count < cluster_count ? count : cluster_count, count < cluster_count ? cluster_count : count);
         }
         else
             points = create_points_json(count);
 
         if (!(flags & FLAG_NO_REAULT))
-            printf(",\n\"result\":%0.12lf\n}\n", calculate_haversine(points, count));
+            printf(",\n\"result\":%0.12lf\n}\n", calculate_haversine(points, cluster_count > count ? cluster_count : count));
         else
             printf("\n}\n");
 
@@ -213,27 +237,52 @@ int main(int argc, char* argv[])
     {
         assert(filename != NULL && "ERROR - no filename given\n");
 
+        timer_start(&timer);
+
         Json_Element* json = NULL;
 
         if (flags & FLAG_ARENA_MEMORY)
             arena = (Arena*)arena_init(ARENA_BLOCK_SIZE, 8);
 
+        timer_stamp(&timer, STR("Set-up"));
 
         String* json_string = NULL;
         json = parse_json(filename, &json_string, arena);
+
+        timer_stamp(&timer, STR("Parse Json"));
+
         if (json)
         {
-            json_nodes_print(json);
+            DEBUG_PRINT(json_nodes_print(json))
             uint64_t count;
-            get_points_from_json(json, &count, arena);
 
-            json_destroy(json, json_string, arena);
+            double* points = get_points_from_json(json, &count, arena);
+
+            timer_stamp(&timer, STR("Extract Points from Json"));
+
+            test_json_haversine(points, count, json);
+
+            timer_stamp(&timer, STR("Calculate Haversine"));
+
+            if (!arena)
+            {
+                json_destroy(json, json_string, arena);
+                free(points);
+            }
+            if (arena)
+                arena_destroy(arena);
+
+            timer_end(&timer, STR("Clean-up"));
+            timer_print_stats(&timer);
+
         }
 
     }
     else
         fprintf(stderr, "ERROR - args unknown\n");
 
+
     return 0;
 }
 
+//Total distance: 16190.694648 km, Count: 5

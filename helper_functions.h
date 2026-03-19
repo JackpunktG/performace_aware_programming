@@ -25,28 +25,14 @@
 #include <stdbool.h>
 #include <sys/stat.h>
 #include <math.h>
+#include <sys/time.h>
+#include <x86intrin.h>
+#include <assert.h>
 
 /* ========================================================================
     Haversine Calculation
     ======================================================================== */
 double calculate_haversine(double* points, uint64_t count);
-
-/* ========================================================================
-    Timer
-    ======================================================================== */
-typedef struct
-{
-    struct timespec before, after;
-} Timer;
-
-void start_timer(Timer* timer);
-void end_timer(Timer* timer);
-void timer_print_sec(Timer* timer);
-void timer_print_nano(Timer* timer);
-double timer_sec(Timer* timer);
-uint64_t timer_nano(Timer* timer);
-void compare_timers(Timer* timer1, Timer* timer2);
-
 
 /* ========================================================================
     Arena Memory Allocator
@@ -112,50 +98,123 @@ static inline void string_destroy(String* string);
 static String* read_entire_file(char* file_name, Arena* arena);
 
 
+/* ========================================================================
+    Timer
+    ======================================================================== */
+
+#define OS_TIMER_FREQ (uint64_t)1000000
+#define RDTSC_FREQ    (uint64_t)2800000000 // Testing was between 2794726538 - 2813246928 so we can assume 2.8Mhz
+
+typedef struct
+{
+    uint64_t stamp;
+    String label;
+} Time_Stamp;
+
+#define MAX_TIME_STAMPS 10
+typedef struct
+{
+    uint64_t start, end;
+    Time_Stamp timer[MAX_TIME_STAMPS];
+    String end_label;
+    uint8_t stamp;
+} Timer;
+
+static inline void timer_start(Timer* timer);
+static inline void timer_end(Timer* timer, String end_label);
+static inline void timer_stamp(Timer* timer, String label);
+static void timer_print_stats(Timer* timer);
+static inline uint64_t os_timer();
+static inline uint64_t get_rdtsc();
+static bool test_rdtsc_frequency(uint32_t milli_sec, uint64_t* freq_out);
+
+
 #endif // PERFORMACE_AWARE_PROGRAMMING_HELPER_H
 #ifdef PERFORMACE_AWARE_PROGRAMMING_HELPER_IMPLEMENTATION
 
-void start_timer(Timer* timer)
+static inline void timer_start(Timer* timer)
 {
-    clock_gettime(CLOCK_MONOTONIC, &timer->before);
+    memset(timer, 0, sizeof(Timer));
+    timer->start = get_rdtsc();
 }
 
-void end_timer(Timer* timer)
+static inline void timer_end(Timer* timer, String end_label)
 {
-    clock_gettime(CLOCK_MONOTONIC, &timer->after);
+    timer->end = get_rdtsc();
+    timer->end_label = end_label;
 }
 
-void timer_print_sec(Timer* timer)
+static inline void timer_stamp(Timer* timer, String label)
 {
-    printf("Time taken: %f seconds\n", (timer->after.tv_sec - timer->before.tv_sec) + (timer->after.tv_nsec - timer->before.tv_nsec) / 1e9);
-}
-void timer_print_nano(Timer* timer)
-{
-    printf("Time taken: %lu nanoseconds\n", (uint64_t)((timer->after.tv_sec - timer->before.tv_sec) * 1e9 + (timer->after.tv_nsec - timer->before.tv_nsec)));
+    assert(timer->stamp < MAX_TIME_STAMPS && "ERROR - max amount of time stamps already taken\n");
+
+    timer->timer[timer->stamp].stamp = get_rdtsc();
+    timer->timer[timer->stamp++].label = label;
 }
 
-double timer_sec(Timer* timer)
+static void timer_print_stats(Timer* timer)
 {
-    return ((timer->after.tv_sec - timer->before.tv_sec) + (timer->after.tv_nsec - timer->before.tv_nsec) / 1e9);
+    uint64_t total_ticks   = timer->end - timer->start;
+    uint64_t running_total = timer->start;
+
+    printf("\tStarting stamp: %lu\n", running_total);
+    for(uint8_t i = 0; i < timer->stamp; ++i)
+    {
+        uint64_t ticks = timer->timer[i].stamp - running_total;
+
+        printf("\t");
+        string_print(&timer->timer[i].label);
+        printf(": %lu, %%%0.2f, (%0.4fsec est)\n", ticks, 100*((float)ticks/total_ticks), (float)ticks / RDTSC_FREQ);
+
+        running_total = timer->timer[i].stamp;
+    }
+    printf("\t");
+    string_print(&timer->end_label);
+    printf(": %lu, %%%0.2f, (%0.6fsec est)\n", timer->end - running_total, 100*((float)(timer->end - running_total)/total_ticks), (float)(timer->end - running_total) / RDTSC_FREQ);
+
+    printf("\tTotal: %lu, (%0.4fsec est)\n", total_ticks, (float)(total_ticks) / RDTSC_FREQ);
 }
 
-uint64_t timer_nano(Timer* timer)
+
+static inline uint64_t os_timer()
 {
-    return (uint64_t)((timer->after.tv_sec - timer->before.tv_sec) * 1e9 + (timer->after.tv_nsec - timer->before.tv_nsec));
+    struct timeval Value;
+    gettimeofday(&Value, 0);
+
+    return (OS_TIMER_FREQ*(uint64_t)Value.tv_sec) + (uint64_t)Value.tv_usec;
+}
+static inline uint64_t get_rdtsc()
+{
+    return __rdtsc();
 }
 
-void compare_timers(Timer* timer1, Timer* timer2)
+static bool test_rdtsc_frequency(uint32_t milli_sec, uint64_t* freq_out)
 {
-    double time1 = (timer1->after.tv_sec - timer1->before.tv_sec) + (timer1->after.tv_nsec - timer1->before.tv_nsec) / 1e9;
-    double time2 = (timer2->after.tv_sec - timer2->before.tv_sec) + (timer2->after.tv_nsec - timer2->before.tv_nsec) / 1e9;
+    uint64_t waiting_time = milli_sec * (OS_TIMER_FREQ / 1000);
 
-    if (time1 < time2)
-        printf("Timer 1 is faster by %f seconds\n", time2 - time1);
-    else if (time2 < time1)
-        printf("Timer 2 is faster by %f seconds\n", time1 - time2);
-    else
-        printf("Both timers are equal\n");
+    uint64_t os_start = os_timer();
+    uint64_t rdtsc_start = get_rdtsc();
+    uint64_t os_end = 0;
+    uint64_t os_elapsed = 0;
+    while(os_elapsed < waiting_time)
+    {
+        os_end = os_timer();
+        os_elapsed = os_end - os_start;
+    }
+
+    uint64_t rdtsc_end = get_rdtsc();
+
+    uint64_t rdtsc_freq;
+    if(os_elapsed)
+    {
+        rdtsc_freq = OS_TIMER_FREQ * (rdtsc_end - rdtsc_start) / os_elapsed;
+    }
+    if (freq_out)
+        *freq_out = rdtsc_freq;
+
+    return rdtsc_freq > 2790000000 && rdtsc_freq < 2810000000;
 }
+
 
 // Arena memory implementation
 static Arena_Block* arena_add_block(Arena *arena, size_t minimumSize)
