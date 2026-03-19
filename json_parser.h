@@ -293,11 +293,14 @@ Json_Element* parse_json_element(Json_Parser* parser, String label, Json_Token t
 
 static void json_free(Json_Element* json)
 {
-    if (json->first_sub_elem != NULL)
-        json_free(json->first_sub_elem);
-    if (json->next_elem != NULL)
-        json_free(json->next_elem);
-    free(json);
+    while (json)
+    {
+        Json_Element* free_elem = json;
+        json = json->next_elem;
+
+        json_free(free_elem->first_sub_elem);
+        free(free_elem);
+    }
 }
 
 static void json_destroy(Json_Element* json, String* json_string, Arena* arena)
@@ -401,3 +404,18 @@ static void json_nodes_print(Json_Element* elem)
         printf("\n");
     }
 }
+
+double get_double_json_value(Json_Element* elem)
+{
+    uint8_t length = elem->value.count;
+    char value[length +1];
+    memcpy(value, elem->value.data, length);
+    value[length] = '\0';
+
+    return strtod(value, NULL);
+}
+
+
+
+
+
