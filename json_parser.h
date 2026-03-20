@@ -305,6 +305,7 @@ static void json_free(Json_Element* json)
 
 static void json_destroy(Json_Element* json, String* json_string, Arena* arena)
 {
+    TIME_FUNCTION;
     if (arena != NULL)
     {
         arena_destroy(arena);
@@ -317,6 +318,7 @@ static void json_destroy(Json_Element* json, String* json_string, Arena* arena)
     string_destroy(json_string);
 
     json = NULL;
+    TIME_FUNCTION_END;
 }
 
 typedef enum
@@ -352,14 +354,17 @@ static Json_Element* get_json_element(Json_Element* json, String label)
 
 static Json_Element* parse_json(char* json_file, String** parser_out,  Arena* arena)
 {
+    TIME_FUNCTION;
     Json_Parser parser = load_json(json_file, arena);
     String label = {0};
 
     // to free the Json File String
     *parser_out = parser.source;
 
-    return parse_json_element(&parser, label, get_json_token(&parser), arena);
-}
+    Json_Element* elem = parse_json_element(&parser, label, get_json_token(&parser), arena);
+    TIME_FUNCTION_END;
+    return elem;
+};
 
 static void json_nodes_print(Json_Element* elem)
 {

@@ -117,6 +117,8 @@ void test_json_haversine(double* points, uint64_t count, Json_Element* json)
 
 double* get_points_from_json(Json_Element* json, uint64_t* count_out, Arena* arena)
 {
+    TIME_FUNCTION;
+    TIME_BLOCK(setup);
     Json_Element* points_on_earth = get_json_element(json, STR("points_on_earth"));
     Json_Element* next            = points_on_earth->first_sub_elem;
 
@@ -132,9 +134,11 @@ double* get_points_from_json(Json_Element* json, uint64_t* count_out, Arena* are
         points = (double*)arena_alloc(arena, sizeof(double) * count *4, NULL);
     else
         points = (double*)malloc(sizeof(double) * count *4);
+    TIME_BLOCK_END(setup);
 
-    uint64_t index =0;
+    uint64_t index = 0;
     next = points_on_earth->first_sub_elem;
+    TIME_BLOCK(loop);
     for (uint64_t i = 0; i < count; ++i)
     {
         Json_Element* point_node = next->first_sub_elem;
@@ -146,9 +150,11 @@ double* get_points_from_json(Json_Element* json, uint64_t* count_out, Arena* are
         }
         next = next->next_elem;
     }
+    TIME_BLOCK_END(loop);
 
     *count_out = count;
 
+    TIME_FUNCTION_END;
     return points;
 }
 
@@ -162,14 +168,10 @@ enum
     FLAG_NO_REAULT    = (1<<4),
     FLAG_ARENA_MEMORY = (1<<5),
 };
-//#include <sys/resource.h>
+
+
 int main(int argc, char* argv[])
 {
-    // struct rlimit rl;
-    // getrlimit(RLIMIT_STACK, &rl);
-    // rl.rlim_cur = 256 * 1024 * 1024;  // 256 MB
-    // setrlimit(RLIMIT_STACK, &rl);
-
     if (argc < 2)
     {
         fprintf(stderr, "Usage: -g [amount]\n");
@@ -177,6 +179,9 @@ int main(int argc, char* argv[])
         fprintf(stderr, "Usage: -c \n");
         return 1;
     }
+
+    PROFILER_START;
+
     uint32_t flags  = 0;
     char* filename  = NULL;
     char* count_str = NULL;
@@ -237,19 +242,16 @@ int main(int argc, char* argv[])
     {
         assert(filename != NULL && "ERROR - no filename given\n");
 
-        timer_start(&timer);
 
         Json_Element* json = NULL;
 
         if (flags & FLAG_ARENA_MEMORY)
             arena = (Arena*)arena_init(ARENA_BLOCK_SIZE, 8);
 
-        timer_stamp(&timer, STR("Set-up"));
 
         String* json_string = NULL;
         json = parse_json(filename, &json_string, arena);
 
-        timer_stamp(&timer, STR("Parse Json"));
 
         if (json)
         {
@@ -258,22 +260,17 @@ int main(int argc, char* argv[])
 
             double* points = get_points_from_json(json, &count, arena);
 
-            timer_stamp(&timer, STR("Extract Points from Json"));
 
             test_json_haversine(points, count, json);
 
-            timer_stamp(&timer, STR("Calculate Haversine"));
 
-            if (!arena)
+            if (arena)
+                arena_destroy(arena);
+            else
             {
                 json_destroy(json, json_string, arena);
                 free(points);
             }
-            if (arena)
-                arena_destroy(arena);
-
-            timer_end(&timer, STR("Clean-up"));
-            timer_print_stats(&timer);
 
         }
 
@@ -281,8 +278,10 @@ int main(int argc, char* argv[])
     else
         fprintf(stderr, "ERROR - args unknown\n");
 
+    PROFILER_END;
+    PROFILER_PRINT;
+
 
     return 0;
 }
 
-//Total distance: 16190.694648 km, Count: 5

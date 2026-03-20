@@ -104,76 +104,181 @@ static String* read_entire_file(char* file_name, Arena* arena);
 
 #define OS_TIMER_FREQ (uint64_t)1000000
 #define RDTSC_FREQ    (uint64_t)2800000000 // Testing was between 2794726538 - 2813246928 so we can assume 2.8Mhz
+#ifdef PROFILER
+#define TIME_FUNCTION Timer* function_timer = timer_start(&global_profiler, STR(__func__))
+#define TIME_FUNCTION_END timer_end(function_timer)
+#define TIME_BLOCK(label) Time_Block* block##label = time_block_start(function_timer, STR(#label))
+#define TIME_BLOCK_END(label) time_block_end(block##label)
+#define PROFILER_START profiler_start(&global_profiler)
+#define PROFILER_END profiler_end(&global_profiler)
+#define PROFILER_PRINT print_profiling_stats(&global_profiler)
+#else
+#define PROFILER_START
+#define PROFILER_END
+#define PROFILER_PRINT
+#define TIME_FUNCTION
+#define TIME_FUNCTION_END
+#define TIME_BLOCK(label)
+#define TIME_BLOCK_END(label)
+#endif
 
-typedef struct
-{
-    uint64_t stamp;
-    String label;
-} Time_Stamp;
-
-#define MAX_TIME_STAMPS 10
 typedef struct
 {
     uint64_t start, end;
-    Time_Stamp timer[MAX_TIME_STAMPS];
-    String end_label;
-    uint8_t stamp;
+    String label;
+} Time_Block;
+
+#define MAX_TIME_STAMPS 5
+typedef struct
+{
+    uint64_t start, end;
+    Time_Block block[MAX_TIME_STAMPS];
+    String function_label;
+    uint8_t block_index;
 } Timer;
 
-static inline void timer_start(Timer* timer);
-static inline void timer_end(Timer* timer, String end_label);
-static inline void timer_stamp(Timer* timer, String label);
-static void timer_print_stats(Timer* timer);
+#define MAX_TIMERS 10
+typedef struct
+{
+    uint64_t start, end;
+    Timer timer[MAX_TIMERS];
+    uint8_t timer_index;
+} Profiler;
+
+static inline void profiler_start(Profiler* p);
+static inline void profiler_end(Profiler* p);
+static inline void time_block_end(Time_Block* block);
+static inline Time_Block* time_block_start(Timer* timer, String label);
+static inline void timer_end(Timer* timer);
+static inline Timer* timer_start(Profiler* p, String function_name);
+static void print_profiling_stats(Profiler* p);
+
 static inline uint64_t os_timer();
 static inline uint64_t get_rdtsc();
 static bool test_rdtsc_frequency(uint32_t milli_sec, uint64_t* freq_out);
 
+static Profiler global_profiler;
 
-#endif // PERFORMACE_AWARE_PROGRAMMING_HELPER_H
-#ifdef PERFORMACE_AWARE_PROGRAMMING_HELPER_IMPLEMENTATION
+//#endif // PERFORMACE_AWARE_PROGRAMMING_HELPER_H
+//#ifdef PERFORMACE_AWARE_PROGRAMMING_HELPER_IMPLEMENTATION
 
-static inline void timer_start(Timer* timer)
+
+static inline void profiler_start(Profiler* p)
 {
-    memset(timer, 0, sizeof(Timer));
-    timer->start = get_rdtsc();
+    memset(p, 0, sizeof(Profiler));
+    p->start = get_rdtsc();
 }
 
-static inline void timer_end(Timer* timer, String end_label)
+static inline void profiler_end(Profiler* p)
+{
+    p->end = get_rdtsc();
+}
+
+static inline Timer* timer_start(Profiler* p, String function_name)
+{
+    assert(p->timer_index < MAX_TIMERS && "ERROR - max amount of timers have done");
+    p->timer[p->timer_index].function_label = function_name;
+    p->timer[p->timer_index++].start = get_rdtsc();
+
+    return &p->timer[p->timer_index -1];
+}
+
+static inline void timer_end(Timer* timer)
 {
     timer->end = get_rdtsc();
-    timer->end_label = end_label;
 }
 
-static inline void timer_stamp(Timer* timer, String label)
+static inline Time_Block* time_block_start(Timer* timer, String label)
 {
-    assert(timer->stamp < MAX_TIME_STAMPS && "ERROR - max amount of time stamps already taken\n");
+    assert(timer->block_index < MAX_TIME_STAMPS && "ERROR - max amount of time stamps already taken\n");
 
-    timer->timer[timer->stamp].stamp = get_rdtsc();
-    timer->timer[timer->stamp++].label = label;
+    timer->block[timer->block_index].start = get_rdtsc();
+    timer->block[timer->block_index++].label = label;
+
+    return &timer->block[timer->block_index -1];
 }
 
-static void timer_print_stats(Timer* timer)
+static inline void time_block_end(Time_Block* block)
 {
-    uint64_t total_ticks   = timer->end - timer->start;
-    uint64_t running_total = timer->start;
+    block->end = get_rdtsc();
+}
 
-    printf("\tStarting stamp: %lu\n", running_total);
-    for(uint8_t i = 0; i < timer->stamp; ++i)
+static void print_block_stats(Time_Block* block, uint64_t total_rdtsc, uint64_t function_rdtsc)
+{
+    printf("\t\tblock ");
+    string_print(&block->label);
+    uint64_t block_total = block->end - block->start;
+    printf("start: %lu -> ending %lu\n\t\t\tblock total: %lu, %0.2f%% (func.), %0.2f%% (total)\n", block->start, block->end, block_total, 100*((float)block_total/function_rdtsc), 100*((float)block_total/total_rdtsc));
+}
+
+static void print_timer_stats(Timer* t, uint64_t total_rdtsc)
+{
+    printf("\tfunc. ");
+    string_print(&t->function_label);
+    uint64_t function_rdtsc = t->end - t->start;
+    printf(": start %lu -> end %lu\n\tfunc. total: %lu, %0.2f%%, %0.4fsec (est)\n", t->start, t->end, function_rdtsc, 100*((float)function_rdtsc/total_rdtsc), (float)function_rdtsc / RDTSC_FREQ);
+
+    for(uint8_t i = 0; i < t->block_index; ++i)
+        print_block_stats(&t->block[i], total_rdtsc, function_rdtsc);
+}
+
+static void print_quick_summary(Profiler* p, uint64_t total_rdtsc)
+{
+    printf("\n\t=========================== Summary =============================\n");
+    for (uint8_t i = 0; i < p->timer_index; ++i)
     {
-        uint64_t ticks = timer->timer[i].stamp - running_total;
-
-        printf("\t");
-        string_print(&timer->timer[i].label);
-        printf(": %lu, %%%0.2f, (%0.4fsec est)\n", ticks, 100*((float)ticks/total_ticks), (float)ticks / RDTSC_FREQ);
-
-        running_total = timer->timer[i].stamp;
+        Timer* t = &p->timer[i];
+        uint64_t function_rdtsc = t->end - t->start;
+        printf("\tfunc. ");
+        string_print(&t->function_label);
+        printf(": %lu, %0.2f%%, %0.4fsec (est)\n", function_rdtsc, 100*((float)function_rdtsc/total_rdtsc), (float)function_rdtsc / RDTSC_FREQ);
+        for (uint8_t k = 0; k < t->block_index; ++k)
+        {
+            printf("\t\tblock ");
+            string_print(&t->block[k].label);
+            uint64_t block_total = t->block[k].end - t->block[k].start;
+            printf(": %lu, %0.2f%% (func.), %0.2f%% (total)\n", block_total, 100*((float)block_total/function_rdtsc), 100*((float)block_total/total_rdtsc));
+        }
     }
-    printf("\t");
-    string_print(&timer->end_label);
-    printf(": %lu, %%%0.2f, (%0.6fsec est)\n", timer->end - running_total, 100*((float)(timer->end - running_total)/total_ticks), (float)(timer->end - running_total) / RDTSC_FREQ);
+    printf("\ttotal: %lu, 100%% %0.4fsec (est)\n",total_rdtsc, (float)total_rdtsc / RDTSC_FREQ);
 
-    printf("\tTotal: %lu, (%0.4fsec est)\n", total_ticks, (float)(total_ticks) / RDTSC_FREQ);
 }
+
+static void print_profiling_stats(Profiler* p)
+{
+    printf("\n\t=========================== Profiler =============================\n");
+    uint64_t total_rdtsc = p->end - p->start;
+    printf("\tprogram start: %lu -> end %lu\n\tprogram total: %lu, 100%% %0.4fsec (est)\n", p->start, p->end, total_rdtsc, (float)total_rdtsc / RDTSC_FREQ);
+    for (uint8_t i = 0; i < p->timer_index; ++i)
+    {
+        printf("\n");
+        print_timer_stats(&p->timer[i], total_rdtsc);
+    }
+    print_quick_summary(p, total_rdtsc);
+}
+
+// static void timer_print_stats(Profiler* p)
+// {
+//     uint64_t total_ticks   = timer->end - timer->start;
+//     uint64_t running_total = timer->start;
+//
+//     printf("\tStarting block: %lu\n", running_total);
+//     for(uint8_t i = 0; i < timer->block; ++i)
+//     {
+//         uint64_t ticks = timer->timer[i].block - running_total;
+//
+//         printf("\t");
+//         string_print(&timer->timer[i].label);
+//         printf(": %lu, %%%0.2f, (%0.4fsec est)\n", ticks, 100*((float)ticks/total_ticks), (float)ticks / RDTSC_FREQ);
+//
+//         running_total = timer->timer[i].block;
+//     }
+//     printf("\t");
+//     string_print(&timer->end_label);
+//     printf(": %lu, %%%0.2f, (%0.6fsec est)\n", timer->end - running_total, 100*((float)(timer->end - running_total)/total_ticks), (float)(timer->end - running_total) / RDTSC_FREQ);
+//
+//     printf("\tTotal: %lu, (%0.4fsec est)\n", total_ticks, (float)(total_ticks) / RDTSC_FREQ);
+// }
 
 
 static inline uint64_t os_timer()
@@ -191,6 +296,7 @@ static inline uint64_t get_rdtsc()
 static bool test_rdtsc_frequency(uint32_t milli_sec, uint64_t* freq_out)
 {
     uint64_t waiting_time = milli_sec * (OS_TIMER_FREQ / 1000);
+
 
     uint64_t os_start = os_timer();
     uint64_t rdtsc_start = get_rdtsc();
