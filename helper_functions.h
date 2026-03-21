@@ -103,7 +103,6 @@ static String* read_entire_file(char* file_name, Arena* arena);
     ======================================================================== */
 
 #define OS_TIMER_FREQ (uint64_t)1000000
-#define RDTSC_FREQ    (uint64_t)2800000000 // Testing was between 2794726538 - 2813246928 so we can assume 2.8Mhz
 #ifdef PROFILER
 #define TIME_FUNCTION Timer* function_timer = timer_start(&global_profiler, STR(__func__))
 #define TIME_FUNCTION_END timer_end(function_timer)
@@ -159,7 +158,7 @@ static void print_profiling_stats(Profiler* p);
 
 static inline uint64_t os_timer();
 static inline uint64_t get_rdtsc();
-static bool test_rdtsc_frequency(uint32_t milli_sec, uint64_t* freq_out);
+static inline uint64_t test_rdtsc_frequency(uint32_t milli_sec);
 
 static Profiler global_profiler;
 
@@ -264,9 +263,9 @@ static inline void time_block_end(Time_Block* block)
     block->end = get_rdtsc();
 }
 
-static void print_block_stats(Time_Block* block, uint64_t total_rdtsc, uint64_t function_rdtsc, uint32_t recursive)
+static void print_block_stats(const uint64_t rdtsc_freq_est, Time_Block* block, const uint64_t total_rdtsc, const uint64_t function_rdtsc, const uint32_t recursive)
 {
-    uint64_t block_total = block->end - block->start;
+    const uint64_t block_total = block->end - block->start;
 
     printf("\t\tblock ");
     string_print(&block->label);
@@ -275,60 +274,62 @@ static void print_block_stats(Time_Block* block, uint64_t total_rdtsc, uint64_t 
         printf("\t\t*recursive total est: %lu, %0.2f%% (func.), %0.2f%% (total)\n", block_total * recursive, 100*((float)(recursive*block_total)/function_rdtsc), 100*((float)(recursive*block_total)/total_rdtsc));
 }
 
-static void print_timer_stats(Timer* t, uint64_t total_rdtsc)
+static void print_timer_stats(const uint64_t rdtsc_freq_est, Timer* t, const uint64_t total_rdtsc)
 {
-    bool recursive          = t->recursive_calls != 0;
-    uint64_t function_rdtsc = t->end - t->start;
+    const bool recursive          = t->recursive_calls != 0;
+    const uint64_t function_rdtsc = t->end - t->start;
 
     printf("\tfunc. ");
     string_print(&t->function_label);
     if (recursive)
         printf("[%u]", t->recursive_calls +1);
-    printf(": start %lu -> end %lu\n\tfunc. total: %lu, %0.2f%%, %0.4fsec (est)\n", t->start, t->end, function_rdtsc, 100*((float)function_rdtsc/total_rdtsc), (float)function_rdtsc / RDTSC_FREQ);
+    printf(": start %lu -> end %lu\n\tfunc. total: %lu, %0.2f%%, %0.4fsec (est)\n", t->start, t->end, function_rdtsc, 100*((float)function_rdtsc/total_rdtsc), (float)function_rdtsc / rdtsc_freq_est);
 
     for(uint8_t i = 0; i < t->block_index; ++i)
-        print_block_stats(&t->block[i], total_rdtsc, function_rdtsc, t->recursive_calls);
+        print_block_stats(rdtsc_freq_est, &t->block[i], total_rdtsc, function_rdtsc, t->recursive_calls);
 }
 
-static void print_quick_summary(Profiler* p, uint64_t total_rdtsc)
+static void print_quick_summary(const uint64_t rdtsc_freq_est, Profiler* p, const uint64_t total_rdtsc)
 {
     printf("\n\t=========================== Summary =============================\n");
     for (uint8_t i = 0; i < p->timer_index; ++i)
     {
-        Timer* t                = &p->timer[i];
-        uint64_t function_rdtsc = t->end - t->start;
-        uint32_t recursive      = t->recursive_calls;
+        Timer* t                      = &p->timer[i];
+        const uint64_t function_rdtsc = t->end - t->start;
+        const uint32_t recursive      = t->recursive_calls;
 
         printf("\tfunc. ");
         string_print(&t->function_label);
         if (recursive)
             printf("[%u]", t->recursive_calls +1);
-        printf(": %lu, %0.2f%%, %0.4fsec (est)\n", function_rdtsc, 100*((float)function_rdtsc/total_rdtsc), (float)function_rdtsc / RDTSC_FREQ);
+        printf(": %lu, %0.2f%%, %0.4fsec (est)\n", function_rdtsc, 100*((float)function_rdtsc/total_rdtsc), (float)function_rdtsc / rdtsc_freq_est);
         for (uint8_t k = 0; k < t->block_index; ++k)
         {
             printf("\t\tblock ");
             string_print(&t->block[k].label);
-            uint64_t block_total = t->block[k].end - t->block[k].start;
+            const uint64_t block_total = t->block[k].end - t->block[k].start;
             printf(": %lu, %0.2f%% (func.), %0.2f%% (total) \n", block_total, 100*((float)block_total/function_rdtsc), 100*((float)block_total/total_rdtsc));
             if (recursive)
                 printf("\t\t*recursive total est: %lu, %0.2f%% (func.), %0.2f%% (total)\n", block_total * recursive, 100*((float)(recursive*block_total)/function_rdtsc), 100*((float)(recursive*block_total)/total_rdtsc));
         }
     }
-    printf("\n\ttotal: %lu, 100%% %0.4fsec (est)\n",total_rdtsc, (float)total_rdtsc / RDTSC_FREQ);
+    printf("\n\ttotal: %lu, 100%% %0.4fsec (est)\n",total_rdtsc, (float)total_rdtsc / rdtsc_freq_est);
 
 }
 
 static void print_profiling_stats(Profiler* p)
 {
+    const uint64_t rdtsc_freq_est = test_rdtsc_frequency(500);
     printf("\n\t=========================== Profiler =============================\n");
-    uint64_t total_rdtsc = p->end - p->start;
-    printf("\tprogram start: %lu -> end %lu\n\tprogram total: %lu, 100%% %0.4fsec (est)\n", p->start, p->end, total_rdtsc, (float)total_rdtsc / RDTSC_FREQ);
+    printf("\trdtsc freq: %lu (est)\n", rdtsc_freq_est);
+    const uint64_t total_rdtsc = p->end - p->start;
+    printf("\tprogram start: %lu -> end %lu\n\tprogram total: %lu, 100%% %0.4fsec (est)\n", p->start, p->end, total_rdtsc, (float)total_rdtsc / rdtsc_freq_est);
     for (uint8_t i = 0; i < p->timer_index; ++i)
     {
         printf("\n");
-        print_timer_stats(&p->timer[i], total_rdtsc);
+        print_timer_stats(rdtsc_freq_est, &p->timer[i], total_rdtsc);
     }
-    print_quick_summary(p, total_rdtsc);
+    print_quick_summary(rdtsc_freq_est, p, total_rdtsc);
 }
 
 // static void timer_print_stats(Profiler* p)
@@ -343,15 +344,15 @@ static void print_profiling_stats(Profiler* p)
 //
 //         printf("\t");
 //         string_print(&timer->timer[i].label);
-//         printf(": %lu, %%%0.2f, (%0.4fsec est)\n", ticks, 100*((float)ticks/total_ticks), (float)ticks / RDTSC_FREQ);
+//         printf(": %lu, %%%0.2f, (%0.4fsec est)\n", ticks, 100*((float)ticks/total_ticks), (float)ticks / rdtsc_freq_est);
 //
 //         running_total = timer->timer[i].block;
 //     }
 //     printf("\t");
 //     string_print(&timer->end_label);
-//     printf(": %lu, %%%0.2f, (%0.6fsec est)\n", timer->end - running_total, 100*((float)(timer->end - running_total)/total_ticks), (float)(timer->end - running_total) / RDTSC_FREQ);
+//     printf(": %lu, %%%0.2f, (%0.6fsec est)\n", timer->end - running_total, 100*((float)(timer->end - running_total)/total_ticks), (float)(timer->end - running_total) / rdtsc_freq_est);
 //
-//     printf("\tTotal: %lu, (%0.4fsec est)\n", total_ticks, (float)(total_ticks) / RDTSC_FREQ);
+//     printf("\tTotal: %lu, (%0.4fsec est)\n", total_ticks, (float)(total_ticks) / rdtsc_freq_est);
 // }
 
 
@@ -367,7 +368,7 @@ static inline uint64_t get_rdtsc()
     return __rdtsc();
 }
 
-static bool test_rdtsc_frequency(uint32_t milli_sec, uint64_t* freq_out)
+static uint64_t test_rdtsc_frequency(uint32_t milli_sec)
 {
     uint64_t waiting_time = milli_sec * (OS_TIMER_FREQ / 1000);
 
@@ -389,10 +390,8 @@ static bool test_rdtsc_frequency(uint32_t milli_sec, uint64_t* freq_out)
     {
         rdtsc_freq = OS_TIMER_FREQ * (rdtsc_end - rdtsc_start) / os_elapsed;
     }
-    if (freq_out)
-        *freq_out = rdtsc_freq;
 
-    return rdtsc_freq > 2790000000 && rdtsc_freq < 2810000000;
+    return rdtsc_freq;
 }
 
 
