@@ -112,7 +112,9 @@ static String* read_entire_file(char* file_name, Arena* arena);
 #define PROFILER_START profiler_start(&global_profiler)
 #define PROFILER_END profiler_end(&global_profiler)
 #define PROFILER_PRINT print_profiling_stats(&global_profiler)
+#define TIME_BLOCK_RECURSIVE(label) Time_Block* block##label = time_block_start_recursive(&global_profiler, STR(__func__), STR(#label))
 #else
+#define TIME_BLOCK_RECURSIVE(label)
 #define PROFILER_START
 #define PROFILER_END
 #define PROFILER_PRINT
@@ -125,6 +127,7 @@ static String* read_entire_file(char* file_name, Arena* arena);
 typedef struct
 {
     uint64_t start, end;
+    uint64_t min, max, total, next;  //for recursive functions
     String label;
 } Time_Block;
 
@@ -134,6 +137,7 @@ typedef struct
     uint64_t start, end;
     Time_Block block[MAX_TIME_STAMPS];
     String function_label;
+    uint32_t recursive_calls;
     uint8_t block_index;
 } Timer;
 
@@ -176,7 +180,12 @@ static inline void profiler_end(Profiler* p)
 
 static inline Timer* timer_start(Profiler* p, String function_name)
 {
-    assert(p->timer_index < MAX_TIMERS && "ERROR - max amount of timers have done");
+    assert((p->timer_index < MAX_TIMERS || p->timer[p->timer_index -1].end == 0)  && "ERROR - max amount of timers have done");
+    if (p->timer[p->timer_index -1].end == 0)
+    {
+        ++p->timer[p->timer_index -1].recursive_calls;
+        return NULL;
+    }
     p->timer[p->timer_index].function_label = function_name;
     p->timer[p->timer_index++].start = get_rdtsc();
 
@@ -185,11 +194,51 @@ static inline Timer* timer_start(Profiler* p, String function_name)
 
 static inline void timer_end(Timer* timer)
 {
+    if (timer == NULL)
+        return;
     timer->end = get_rdtsc();
 }
 
+static inline bool find_recurseive_block(Timer* t, String* label, uint8_t* k)
+{
+    for (uint8_t j = t->block_index -1; j >= 0; --j)
+    {
+        if (are_equal(&t->block[j].label, label))
+        {
+            *k = j;
+            return true;
+        }
+    }
+    return false;
+}
+
+// static inline Time_Block* time_block_start_recursive(Profiler* p, String function_name, String label)
+// {
+//     for (uint8_t i = p->timer_index -1; i >= 0; --i)
+//     {
+//         if (are_equal(&p->timer[i].function_label, &function_name))
+//         {
+//             Timer* t = &p->timer[i];
+//             uint8_t k = 0;
+//             if (t->block_index == 0 || !find_recurseive_block(t, &label, &k))
+//                 return time_block_start(t, label);
+//             else
+//             {
+//                 Time_Block* b = &t->block[k];
+//                 b->next = get_rdtsc();
+//                 return b;
+//             }
+//         }
+//     }
+//
+//     printf("WARNING - time block for recursive function not found\n");
+//     return NULL;
+// }
+
 static inline Time_Block* time_block_start(Timer* timer, String label)
 {
+    if (timer == NULL)
+        return NULL;
     assert(timer->block_index < MAX_TIME_STAMPS && "ERROR - max amount of time stamps already taken\n");
 
     timer->block[timer->block_index].start = get_rdtsc();
@@ -200,26 +249,45 @@ static inline Time_Block* time_block_start(Timer* timer, String label)
 
 static inline void time_block_end(Time_Block* block)
 {
+    if (block == NULL || block->end > 0)
+        return;
+    // if (block->end > 0)
+    // {
+    //     assert(block->next > 0 && "ERROR - next was not precalculated");
+    //     uint64_t ticks = get_rdtsc() - block->next;
+    //     block->min = ticks > block->min ? block->min : ticks;
+    //     block->max = ticks < block->max ? block->min : ticks;
+    //     block->total += ticks;
+    //     block->next = 0;
+    //     return;
+    // }
     block->end = get_rdtsc();
 }
 
-static void print_block_stats(Time_Block* block, uint64_t total_rdtsc, uint64_t function_rdtsc)
+static void print_block_stats(Time_Block* block, uint64_t total_rdtsc, uint64_t function_rdtsc, uint32_t recursive)
 {
+    uint64_t block_total = block->end - block->start;
+
     printf("\t\tblock ");
     string_print(&block->label);
-    uint64_t block_total = block->end - block->start;
-    printf("start: %lu -> ending %lu\n\t\t\tblock total: %lu, %0.2f%% (func.), %0.2f%% (total)\n", block->start, block->end, block_total, 100*((float)block_total/function_rdtsc), 100*((float)block_total/total_rdtsc));
+    printf(" start: %lu -> end %lu\n\t\tblock total: %lu, %0.2f%% (func.), %0.2f%% (total) %s\n", block->start, block->end, block_total, 100*((float)block_total/function_rdtsc), 100*((float)block_total/total_rdtsc), recursive ? "first recursion" : "");
+    if (recursive)
+        printf("\t\t*recursive total est: %lu, %0.2f%% (func.), %0.2f%% (total)\n", block_total * recursive, 100*((float)(recursive*block_total)/function_rdtsc), 100*((float)(recursive*block_total)/total_rdtsc));
 }
 
 static void print_timer_stats(Timer* t, uint64_t total_rdtsc)
 {
+    bool recursive          = t->recursive_calls != 0;
+    uint64_t function_rdtsc = t->end - t->start;
+
     printf("\tfunc. ");
     string_print(&t->function_label);
-    uint64_t function_rdtsc = t->end - t->start;
+    if (recursive)
+        printf("[%u]", t->recursive_calls +1);
     printf(": start %lu -> end %lu\n\tfunc. total: %lu, %0.2f%%, %0.4fsec (est)\n", t->start, t->end, function_rdtsc, 100*((float)function_rdtsc/total_rdtsc), (float)function_rdtsc / RDTSC_FREQ);
 
     for(uint8_t i = 0; i < t->block_index; ++i)
-        print_block_stats(&t->block[i], total_rdtsc, function_rdtsc);
+        print_block_stats(&t->block[i], total_rdtsc, function_rdtsc, t->recursive_calls);
 }
 
 static void print_quick_summary(Profiler* p, uint64_t total_rdtsc)
@@ -227,20 +295,26 @@ static void print_quick_summary(Profiler* p, uint64_t total_rdtsc)
     printf("\n\t=========================== Summary =============================\n");
     for (uint8_t i = 0; i < p->timer_index; ++i)
     {
-        Timer* t = &p->timer[i];
+        Timer* t                = &p->timer[i];
         uint64_t function_rdtsc = t->end - t->start;
+        uint32_t recursive      = t->recursive_calls;
+
         printf("\tfunc. ");
         string_print(&t->function_label);
+        if (recursive)
+            printf("[%u]", t->recursive_calls +1);
         printf(": %lu, %0.2f%%, %0.4fsec (est)\n", function_rdtsc, 100*((float)function_rdtsc/total_rdtsc), (float)function_rdtsc / RDTSC_FREQ);
         for (uint8_t k = 0; k < t->block_index; ++k)
         {
             printf("\t\tblock ");
             string_print(&t->block[k].label);
             uint64_t block_total = t->block[k].end - t->block[k].start;
-            printf(": %lu, %0.2f%% (func.), %0.2f%% (total)\n", block_total, 100*((float)block_total/function_rdtsc), 100*((float)block_total/total_rdtsc));
+            printf(": %lu, %0.2f%% (func.), %0.2f%% (total) \n", block_total, 100*((float)block_total/function_rdtsc), 100*((float)block_total/total_rdtsc));
+            if (recursive)
+                printf("\t\t*recursive total est: %lu, %0.2f%% (func.), %0.2f%% (total)\n", block_total * recursive, 100*((float)(recursive*block_total)/function_rdtsc), 100*((float)(recursive*block_total)/total_rdtsc));
         }
     }
-    printf("\ttotal: %lu, 100%% %0.4fsec (est)\n",total_rdtsc, (float)total_rdtsc / RDTSC_FREQ);
+    printf("\n\ttotal: %lu, 100%% %0.4fsec (est)\n",total_rdtsc, (float)total_rdtsc / RDTSC_FREQ);
 
 }
 

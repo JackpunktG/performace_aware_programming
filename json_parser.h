@@ -185,10 +185,12 @@ static inline Json_Parser load_json(char* json_file, Arena* arena)
 Json_Element* parse_json_element(Json_Parser* parser, String label, Json_Token token, Arena* arena);
 Json_Element* parse_json_list(Json_Parser* parser, Json_Token start_token, Json_Token_Type end_type, bool has_label, Arena* arena)
 {
+    TIME_FUNCTION;
     Json_Element* first_elem = NULL;
     Json_Element* last_elem  = NULL;
     bool error               = false;
 
+    TIME_BLOCK(ge);
     while (in_bounds(parser->source, parser->cursor) && !error)
     {
         String label = {};
@@ -215,6 +217,7 @@ Json_Element* parse_json_list(Json_Parser* parser, Json_Token start_token, Json_
                 error = true;
             }
         }
+        TIME_BLOCK_END(ge);
 
         Json_Element* elem = parse_json_element(parser, label, next_token, arena);
         if (elem)
@@ -242,7 +245,7 @@ Json_Element* parse_json_list(Json_Parser* parser, Json_Token start_token, Json_
             error = true;
         }
     }
-
+    TIME_FUNCTION_END;
     return first_elem;
 }
 
@@ -354,16 +357,13 @@ static Json_Element* get_json_element(Json_Element* json, String label)
 
 static Json_Element* parse_json(char* json_file, String** parser_out,  Arena* arena)
 {
-    TIME_FUNCTION;
     Json_Parser parser = load_json(json_file, arena);
     String label = {0};
 
     // to free the Json File String
     *parser_out = parser.source;
 
-    Json_Element* elem = parse_json_element(&parser, label, get_json_token(&parser), arena);
-    TIME_FUNCTION_END;
-    return elem;
+    return parse_json_element(&parser, label, get_json_token(&parser), arena);
 };
 
 static void json_nodes_print(Json_Element* elem)
