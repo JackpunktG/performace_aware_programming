@@ -49,3 +49,37 @@ Passing the '-clocks' will output an estimation for how many clock cycles the pr
 ```bash
 8086_sim -clocks <assembly_file> 
 ```
+
+
+## Profiler
+The profiler is a tool that captures performaces metrics based on direct calls to rdtsc, which through the program with the help of easy macros, allows to capture the number of clock cycles taken by a specific block of code. This allows the comparison of different implementations of the same algorithm, and see how different optimizations affect the performance.
+
+#### To build
+Pass the `-DPROFILER` flag during the compelation, in order to build the Program with the Profiler.
+
+Then throughout the project add the following macros:
+###### Set-up
+```c
+    PROFILER_START;     // start of the Profiler
+    ...
+    PROFILER_END;       // to end the timing
+    PROFILER_PRINT;     // print out the statistic
+
+```
+###### Timing functions
+```c
+    TIME_FUNCTION;      // At the start of the function
+    TIME_FUNCTION_END;  // ending the function
+
+    /* for blocks within functions */
+    TIME_BLOCK(label);  // keeps tracks of blocks within a function
+    TIME_BLOCK_END(label);  
+```
+
+Without adding the flag all the Marcos are turned off, and just a very lightweight timing of the whole program is done. To be able to see how much overhead the Profiler introduces
+
+![Profiler print out](/images/profiler.png)
+
+#### Recursive Blocks
+the handling of recursive block will total the amount of times called, and make an estimate of any blocks inside for a function and total run %.
+- These are seen with a `[]` with the total number of times the function is called.

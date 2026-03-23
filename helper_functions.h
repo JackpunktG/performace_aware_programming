@@ -103,30 +103,11 @@ static String* read_entire_file(char* file_name, Arena* arena);
     ======================================================================== */
 
 #define OS_TIMER_FREQ (uint64_t)1000000
-#ifdef PROFILER
-#define TIME_FUNCTION Timer* function_timer = timer_start(&global_profiler, STR(__func__))
-#define TIME_FUNCTION_END timer_end(function_timer)
-#define TIME_BLOCK(label) Time_Block* block##label = time_block_start(function_timer, STR(#label))
-#define TIME_BLOCK_END(label) time_block_end(block##label)
-#define PROFILER_START profiler_start(&global_profiler)
-#define PROFILER_END profiler_end(&global_profiler)
-#define PROFILER_PRINT print_profiling_stats(&global_profiler)
-#define TIME_BLOCK_RECURSIVE(label) Time_Block* block##label = time_block_start_recursive(&global_profiler, STR(__func__), STR(#label))
-#else
-#define TIME_BLOCK_RECURSIVE(label)
-#define PROFILER_START
-#define PROFILER_END
-#define PROFILER_PRINT
-#define TIME_FUNCTION
-#define TIME_FUNCTION_END
-#define TIME_BLOCK(label)
-#define TIME_BLOCK_END(label)
-#endif
 
 typedef struct
 {
     uint64_t start, end;
-    uint64_t min, max, total, next;  //for recursive functions
+    //uint64_t min, max, total, next;  //for recursive functions
     String label;
 } Time_Block;
 
@@ -155,15 +136,40 @@ static inline Time_Block* time_block_start(Timer* timer, String label);
 static inline void timer_end(Timer* timer);
 static inline Timer* timer_start(Profiler* p, String function_name);
 static void print_profiling_stats(Profiler* p);
+static inline void basic_program_runtime(Time_Block* block);
 
 static inline uint64_t os_timer();
 static inline uint64_t get_rdtsc();
 static inline uint64_t test_rdtsc_frequency(uint32_t milli_sec);
 
-static Profiler global_profiler;
+#ifdef PROFILER
+#define TIME_FUNCTION Timer* function_timer = timer_start(&global_profiler, STR(__func__))
+#define TIME_FUNCTION_END timer_end(function_timer)
+#define TIME_BLOCK(label) Time_Block* block##label = time_block_start(function_timer, STR(#label))
+#define TIME_BLOCK_END(label) time_block_end(block##label)
+#define PROFILER_START profiler_start(&global_profiler)
+#define PROFILER_END profiler_end(&global_profiler)
+#define PROFILER_PRINT print_profiling_stats(&global_profiler)
+#define TIME_BLOCK_RECURSIVE(label) Time_Block* block##label = time_block_start_recursive(&global_profiler, STR(__func__), STR(#label))
 
-//#endif // PERFORMACE_AWARE_PROGRAMMING_HELPER_H
-//#ifdef PERFORMACE_AWARE_PROGRAMMING_HELPER_IMPLEMENTATION
+static Profiler global_profiler;
+#else
+#define TIME_BLOCK_RECURSIVE(label)
+#define PROFILER_START Time_Block program_runtime = {get_rdtsc()};
+#define PROFILER_END program_runtime.end = get_rdtsc();
+#define PROFILER_PRINT basic_program_runtime(&program_runtime);
+#define TIME_FUNCTION
+#define TIME_FUNCTION_END
+#define TIME_BLOCK(label)
+#define TIME_BLOCK_END(label)
+#endif
+
+
+
+
+
+#endif // PERFORMACE_AWARE_PROGRAMMING_HELPER_H
+#ifdef PERFORMACE_AWARE_PROGRAMMING_HELPER_IMPLEMENTATION
 
 
 static inline void profiler_start(Profiler* p)
@@ -261,6 +267,15 @@ static inline void time_block_end(Time_Block* block)
     //     return;
     // }
     block->end = get_rdtsc();
+}
+
+static inline void basic_program_runtime(Time_Block* block)
+{
+    const uint64_t rdtsc_freq_est = test_rdtsc_frequency(500);
+    const uint64_t total_rdtsc    = block->end - block->start;
+    printf("\n\t=========================== Runtime =============================\n");
+    printf("\trdtsc freq: %lu (est)\n", rdtsc_freq_est);
+    printf("\tprogram start: %lu -> end %lu\n\tprogram total: %lu, 100%% %0.4fsec (est)\n", block->start, block->end, total_rdtsc, (float)total_rdtsc / rdtsc_freq_est);
 }
 
 static void print_block_stats(const uint64_t rdtsc_freq_est, Time_Block* block, const uint64_t total_rdtsc, const uint64_t function_rdtsc, const uint32_t recursive)

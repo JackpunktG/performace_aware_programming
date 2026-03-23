@@ -240,6 +240,7 @@ int main(int argc, char* argv[])
     }
     else if (flags & FLAG_CALCULATE)
     {
+        TIME_FUNCTION;
         assert(filename != NULL && "ERROR - no filename given\n");
 
 
@@ -273,6 +274,8 @@ int main(int argc, char* argv[])
             }
 
         }
+
+        TIME_FUNCTION_END;
 
     }
     else
