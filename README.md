@@ -52,7 +52,7 @@ Passing the '-clocks' will output an estimation for how many clock cycles the pr
 
 
 ## Profiler
-The profiler is a tool that captures performaces metrics based on direct calls to rdtsc, which through the program with the help of easy macros, allows to capture the number of clock cycles taken by a specific block of code. This allows the comparison of different implementations of the same algorithm, and see how different optimizations affect the performance.
+The profiler is a tool that captures performaces metrics based on direct calls to rdtsc, which through the program with the help of easy macros, allows to capture the number of clock cycles taken by a specific block of code. This allows the comparison of different implementations of the same algorithm, and see how different optimizations affect the performance. The profiler calculates the specific rdtsc frequency to the current machine, to give accurate estimates of elapsed time.
 
 #### To build
 Pass the `-DPROFILER` flag during the compelation, in order to build the Program with the Profiler.
