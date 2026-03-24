@@ -60,6 +60,7 @@ static inline bool is_json_number(String* json, uint64_t cursor)
 
 static Json_Token get_json_token(Json_Parser* parser)
 {
+    HARNESS_BLOCK(json_parse, tokenizer, 0);
     Json_Token token = {};
     token.type       = TOKEN_END_OF_STREAM;
 
@@ -168,6 +169,7 @@ static Json_Token get_json_token(Json_Parser* parser)
 
     parser->cursor = cursor;
 
+    HARNESS_BLOCK_END(tokenizer);
     return token;
 };
 
@@ -185,12 +187,10 @@ static inline Json_Parser load_json(char* json_file, Arena* arena)
 Json_Element* parse_json_element(Json_Parser* parser, String label, Json_Token token, Arena* arena);
 Json_Element* parse_json_list(Json_Parser* parser, Json_Token start_token, Json_Token_Type end_type, bool has_label, Arena* arena)
 {
-    TIME_FUNCTION;
     Json_Element* first_elem = NULL;
     Json_Element* last_elem  = NULL;
     bool error               = false;
 
-    TIME_BLOCK(ge);
     while (in_bounds(parser->source, parser->cursor) && !error)
     {
         String label = {};
@@ -217,7 +217,6 @@ Json_Element* parse_json_list(Json_Parser* parser, Json_Token start_token, Json_
                 error = true;
             }
         }
-        TIME_BLOCK_END(ge);
 
         Json_Element* elem = parse_json_element(parser, label, next_token, arena);
         if (elem)
@@ -245,12 +244,12 @@ Json_Element* parse_json_list(Json_Parser* parser, Json_Token start_token, Json_
             error = true;
         }
     }
-    TIME_FUNCTION_END;
     return first_elem;
 }
 
 Json_Element* parse_json_element(Json_Parser* parser, String label, Json_Token token, Arena* arena)
 {
+    HARNESS_BEGIN(json_parse, parser->source->count);
     bool item = true;
 
     Json_Element *sub_elem = NULL;
@@ -291,6 +290,7 @@ Json_Element* parse_json_element(Json_Parser* parser, String label, Json_Token t
         DEBUG_PRINT(string_println(&elem->value));
     }
 
+    HARNESS_END(json_parse);
     return elem;
 }
 
@@ -308,7 +308,6 @@ static void json_free(Json_Element* json)
 
 static void json_destroy(Json_Element* json, String* json_string, Arena* arena)
 {
-    TIME_FUNCTION;
     if (arena != NULL)
     {
         arena_destroy(arena);
@@ -321,7 +320,6 @@ static void json_destroy(Json_Element* json, String* json_string, Arena* arena)
     string_destroy(json_string);
 
     json = NULL;
-    TIME_FUNCTION_END;
 }
 
 typedef enum
@@ -363,7 +361,8 @@ static Json_Element* parse_json(char* json_file, String** parser_out,  Arena* ar
     // to free the Json File String
     *parser_out = parser.source;
 
-    return parse_json_element(&parser, label, get_json_token(&parser), arena);
+    Json_Element* result = parse_json_element(&parser, label, get_json_token(&parser), arena);
+    return result;
 };
 
 static void json_nodes_print(Json_Element* elem)

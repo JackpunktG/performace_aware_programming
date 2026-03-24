@@ -103,7 +103,10 @@ static inline bool almost_equal(float a, float b)
 
 void test_json_haversine(double* points, uint64_t count, Json_Element* json)
 {
+    TIME_FUNCTION;
+    TIME_BLOCK(calculate_haversine);
     double result = calculate_haversine(points, count);
+    TIME_BLOCK_END(calculate_haversine);
 
 
     double truth_result = get_double_json_value(get_json_element(json, STR("result")));
@@ -113,12 +116,11 @@ void test_json_haversine(double* points, uint64_t count, Json_Element* json)
     else
         printf("results differ... calculated: %0.10f, json truth: %0.10f\n", (float)result, (float)truth_result);
 
+    TIME_FUNCTION_END;
 }
 
 double* get_points_from_json(Json_Element* json, uint64_t* count_out, Arena* arena)
 {
-    TIME_FUNCTION;
-    TIME_BLOCK(setup);
     Json_Element* points_on_earth = get_json_element(json, STR("points_on_earth"));
     Json_Element* next            = points_on_earth->first_sub_elem;
 
@@ -134,11 +136,9 @@ double* get_points_from_json(Json_Element* json, uint64_t* count_out, Arena* are
         points = (double*)arena_alloc(arena, sizeof(double) * count *4, NULL);
     else
         points = (double*)malloc(sizeof(double) * count *4);
-    TIME_BLOCK_END(setup);
 
     uint64_t index = 0;
     next = points_on_earth->first_sub_elem;
-    TIME_BLOCK(loop);
     for (uint64_t i = 0; i < count; ++i)
     {
         Json_Element* point_node = next->first_sub_elem;
@@ -150,11 +150,9 @@ double* get_points_from_json(Json_Element* json, uint64_t* count_out, Arena* are
         }
         next = next->next_elem;
     }
-    TIME_BLOCK_END(loop);
 
     *count_out = count;
 
-    TIME_FUNCTION_END;
     return points;
 }
 
@@ -186,7 +184,6 @@ int main(int argc, char* argv[])
     char* filename  = NULL;
     char* count_str = NULL;
     Arena* arena    = NULL;
-    Timer timer     = {0};
 
     for (uint8_t i = 1; i < argc; ++i)
     {
@@ -240,7 +237,6 @@ int main(int argc, char* argv[])
     }
     else if (flags & FLAG_CALCULATE)
     {
-        TIME_FUNCTION;
         assert(filename != NULL && "ERROR - no filename given\n");
 
 
@@ -261,21 +257,23 @@ int main(int argc, char* argv[])
 
             double* points = get_points_from_json(json, &count, arena);
 
-
             test_json_haversine(points, count, json);
 
 
-            if (arena)
-                arena_destroy(arena);
-            else
             {
-                json_destroy(json, json_string, arena);
-                free(points);
+                TIME_FUNCTION;
+                if (arena)
+                    arena_destroy(arena);
+                else
+                {
+                    json_destroy(json, json_string, arena);
+                    free(points);
+                }
+                TIME_FUNCTION_END;
             }
 
         }
 
-        TIME_FUNCTION_END;
 
     }
     else
