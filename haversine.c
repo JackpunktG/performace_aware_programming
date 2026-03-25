@@ -103,20 +103,19 @@ static inline bool almost_equal(float a, float b)
 
 void test_json_haversine(double* points, uint64_t count, Json_Element* json)
 {
-    TIME_FUNCTION;
-    TIME_BLOCK(calculate_haversine);
+    HARNESS_BEGIN(test_json_haversine, sizeof(double)*count*4);
     double result = calculate_haversine(points, count);
-    TIME_BLOCK_END(calculate_haversine);
 
-
+    HARNESS_BLOCK(test_json_haversine, truth_result, 0);
     double truth_result = get_double_json_value(get_json_element(json, STR("result")));
+    HARNESS_BLOCK_END(truth_result);
 
     if (almost_equal((float)result, (float)truth_result))
         printf("result is the same!! Haversine avg: %0.10f\n", (float)result);
     else
         printf("results differ... calculated: %0.10f, json truth: %0.10f\n", (float)result, (float)truth_result);
+    HARNESS_END(test_json_haversine);
 
-    TIME_FUNCTION_END;
 }
 
 double* get_points_from_json(Json_Element* json, uint64_t* count_out, Arena* arena)
@@ -260,16 +259,12 @@ int main(int argc, char* argv[])
             test_json_haversine(points, count, json);
 
 
+            if (arena)
+                arena_destroy(arena);
+            else
             {
-                TIME_FUNCTION;
-                if (arena)
-                    arena_destroy(arena);
-                else
-                {
-                    json_destroy(json, json_string, arena);
-                    free(points);
-                }
-                TIME_FUNCTION_END;
+                json_destroy(json, json_string);
+                free(points);
             }
 
         }

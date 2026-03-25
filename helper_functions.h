@@ -104,16 +104,16 @@ static String* read_entire_file(char* file_name, Arena* arena);
 
 #define OS_TIMER_FREQ (uint64_t)1000000
 
-
 typedef struct
 {
     uint64_t start, end;
+    uint64_t min, max, total, count;
     uint64_t data;
     String label;
 } Ref_Block;
 
 #define MAX_TIME_STAMPS 50
-typedef struct
+typedef struct Harness
 {
     uint64_t start, end;
     uint64_t data;
@@ -131,11 +131,17 @@ typedef struct
     uint8_t harness_index;
 } Profiler;
 
+typedef struct
+{
+    uint64_t start;
+    Ref_Block* block;
+} Ref_Data_Block;
+
 static inline void profiler_start(Profiler* p);
 static inline void profiler_end(Profiler* p);
-static inline void ref_block_end(Ref_Block* block);
-static inline Ref_Block* ref_block_start(Harness* harness, String label, const uint64_t data_through);
-static inline Ref_Block* ref_block_start_harness_search(Profiler* profiler, String harness, String label, const uint64_t data_through);
+static inline void ref_block_end(Ref_Data_Block stamp);
+static inline Ref_Block* ref_block_init(Harness* harness, String label, const uint64_t data_through, const uint64_t start);
+static inline Ref_Data_Block ref_block_start(Profiler* profiler, String harness, String label, const uint64_t data_through);
 static inline void harness_end(Harness* harness);
 static inline Harness* harness_start(Profiler* p, String function_name, const uint64_t data_through);
 static void print_profiling_stats(Profiler* p);
@@ -144,15 +150,16 @@ static inline void basic_program_runtime(Ref_Block* block);
 static inline uint64_t os_timer();
 static inline uint64_t get_rdtsc();
 static inline uint64_t test_rdtsc_frequency(uint32_t milli_sec);
+
 #ifdef PROFILER
 #define TIME_FUNCTION Harness* function_harness = harness_start(&global_profiler, STR(__func__), 0)
 #define TIME_FUNCTION_END harness_end(function_harness)
-#define TIME_BLOCK(label) Ref_Block* block##label = ref_block_start(function_harness, STR(#label), 0)
+#define TIME_BLOCK(label) Ref_Data_Block block##label = ref_block_start(&global_profiler, STR(__func__), STR(#label), 0)
 #define TIME_BLOCK_END(label) ref_block_end(block##label)
 
 #define HARNESS_BEGIN(label, size) Harness* harness##label = harness_start(&global_profiler, STR(#label), size)
 #define HARNESS_END(label) harness_end(harness##label)
-#define HARNESS_BLOCK(harness, label, size) Ref_Block* block##label = ref_block_start_harness_search(&global_profiler, STR(#harness), STR(#label), size)
+#define HARNESS_BLOCK(harness, label, size) Ref_Data_Block block##label = ref_block_start(&global_profiler, STR(#harness), STR(#label), size)
 #define HARNESS_BLOCK_END(label) ref_block_end(block##label)
 
 #define PROFILER_START profiler_start(&global_profiler)
@@ -180,6 +187,25 @@ static Profiler global_profiler;
 
 //#endif // PERFORMACE_AWARE_PROGRAMMING_HELPER_H
 //#ifdef PERFORMACE_AWARE_PROGRAMMING_HELPER_IMPLEMENTATION
+#define COLOR_RESET   "\033[0m"
+
+#define COLOR_BLACK   "\033[0;30m"
+#define COLOR_RED     "\033[0;31m"
+#define COLOR_GREEN   "\033[0;32m"
+#define COLOR_YELLOW  "\033[0;33m"
+#define COLOR_BLUE    "\033[0;34m"
+#define COLOR_MAGENTA "\033[0;35m"
+#define COLOR_CYAN    "\033[0;36m"
+#define COLOR_WHITE   "\033[0;37m"
+
+#define COLOR_BOLD_BLACK   "\033[1;30m"
+#define COLOR_BOLD_RED     "\033[1;31m"
+#define COLOR_BOLD_GREEN   "\033[1;32m"
+#define COLOR_BOLD_YELLOW  "\033[1;33m"
+#define COLOR_BOLD_BLUE    "\033[1;34m"
+#define COLOR_BOLD_MAGENTA "\033[1;35m"
+#define COLOR_BOLD_CYAN    "\033[1;36m"
+#define COLOR_BOLD_WHITE   "\033[1;37m"
 
 typedef enum
 {
@@ -245,69 +271,122 @@ static inline bool find_harness(Profiler* p, String label, uint8_t* k)
     return false;
 }
 
-static inline Ref_Block* ref_block_start(Harness* harness, String label, const uint64_t data_through)
+static inline bool find_ref_block(Harness* h, String label, uint8_t* index)
+{
+    for (int j = h->block_index -1; j >= 0; --j)
+    {
+        if (are_equal(&h->block[j].label, &label))
+        {
+            *index = j;
+            return true;
+        }
+    }
+    return false;
+}
+
+static inline Ref_Block* ref_block_init(Harness* harness, String label, const uint64_t data_through, const uint64_t start)
 {
     if (harness == NULL)
         return NULL;
     else if (harness->block_index >= MAX_TIME_STAMPS)
     {
-        printf("WARNING - harness: ");
+        printf(COLOR_BOLD_CYAN " WARNING - harness: ");
         string_print(&harness->function_label);
-        printf(" has already had maximum ref_blocks taken\n");
+        printf(COLOR_RESET " has already had maximum ref_blocks taken\n");
         return NULL;
     }
 
     Ref_Block* block = &harness->block[harness->block_index++];
     block->label     = label;
     block->data      = data_through;
-    block->start     = get_rdtsc();
+    block->start     = start ? start : get_rdtsc();
 
     return block;
 }
 
-static inline Ref_Block* ref_block_start_harness_search(Profiler* profiler, String harness, String label, const uint64_t data_through)
+static inline Ref_Data_Block ref_block_start(Profiler* profiler, String harness, String label, const uint64_t data_through)
 {
+    Ref_Data_Block b = {0};
     uint8_t index;
     if (!find_harness(profiler, harness, &index))
     {
-        printf("WARNING - harness: ");
+        printf(COLOR_BOLD_MAGENTA "WARNING - harness: `");
         string_print(&harness);
-        printf(" not found\n");
-        return NULL;
+        printf(COLOR_RESET "` Initaialised yet / not found\n");
+        return b;
+    }
+    Harness* h = &profiler->harness[index];
+    if (find_ref_block(h, label, &index))
+    {
+        b.start = get_rdtsc();
+        b.block = &h->block[index];
+    }
+    else
+    {
+        b.start = get_rdtsc();
+        b.block = ref_block_init(h, label, data_through, b.start);
     }
 
-    return ref_block_start(&profiler->harness[index], label, data_through);
+    return b;
 }
 
-
-static inline void ref_block_end(Ref_Block* block)
+static inline void ref_block_end(Ref_Data_Block stamp)
 {
-    if (block == NULL || block->end > 0)
+    if (!stamp.block)
         return;
-    block->end = get_rdtsc();
+
+    uint64_t ticks = get_rdtsc();
+    Ref_Block* b   = stamp.block;
+
+    if (b->start == stamp.start)
+    {
+        b->end = ticks;
+        ticks -= stamp.start;
+        b->min = b->max = ticks;
+
+    }
+    else
+        ticks -= stamp.start;
+
+
+    if (ticks < b->min)
+        b->min = ticks;
+    else if (ticks > b->max)
+        b->max = ticks;
+
+    b->total += ticks;
+    ++b->count;
 }
 
 static inline void basic_program_runtime(Ref_Block* block)
 {
     const uint64_t rdtsc_freq_est = test_rdtsc_frequency(500);
     const uint64_t total_rdtsc    = block->end - block->start;
-    printf("\n\t=============================== Runtime ==================================\n");
+    printf("\n\t================================== Runtime =====================================\n");
     printf("\trdtsc freq: %lu *times are estimated based on rdtsc frequency calculation\n", rdtsc_freq_est);
     printf("\tprogram start: %lu -> end %lu\n\tprogram total: %lu, 100%% %0.4fsec\n", block->start, block->end, total_rdtsc, (float)total_rdtsc / rdtsc_freq_est);
 }
 
 static void print_block_stats(const uint64_t rdtsc_freq_est, Ref_Block* block, const uint64_t total_rdtsc, const uint64_t function_rdtsc, const uint32_t recursive)
 {
-    const uint64_t block_total = block->end - block->start;
 
     printf("\t\tblock ");
     string_print(&block->label);
-    printf(" start: %lu -> end %lu\n\t\tblock total: %lu, %0.2f%% (func.), %0.2f%% (total) %s, data: %lu", block->start, block->end, block_total, 100*((float)block_total/function_rdtsc), 100*((float)block_total/total_rdtsc), recursive ? "first recursion" : "", block->data);
-    if (block->data)
-        printf(", %0.2fmb - %0.2fgb/s", bytes_to(block->data, MB), bytes_to(block->data, GB)/((float)block_total/rdtsc_freq_est));
+    if (block->count > 1)
+    {
+        printf(": %lu min, %lu max, %lu count, %lu avg (rdtsc ticks)\n", block->min, block->max, block->count, block->total / block->count);
+        printf("\t\tblock total: %lu, %0.2f%% (func.), %0.2f%% (total), %0.4fsec", block->total, 100*((float)block->total/function_rdtsc), 100*((float)block->total/total_rdtsc), (float)block->total/rdtsc_freq_est);
+        if (block->data)
+            printf(", %0.2fmb - %0.2fgb/s", bytes_to(block->data, MB), bytes_to(block->data, GB)/((float)((float)block->total / block->count)/rdtsc_freq_est));
+    }
+    else
+    {
+        const uint64_t block_total = block->end - block->start;
+        printf(" start: %lu -> end %lu\n\t\tblock total: %lu, %0.2f%% (func.), %0.2f%% (total), %0.4fsec", block->start, block->end, block_total, 100*((float)block_total/function_rdtsc), 100*((float)block_total/total_rdtsc), (float)block_total/rdtsc_freq_est);
+        if (block->data)
+            printf(", %0.2fmb - %0.2fgb/s", bytes_to(block->data, MB), bytes_to(block->data, GB)/((float)block_total/rdtsc_freq_est));
+    }
     printf("\n");
-    if (recursive)
-        printf("\t\t*recursive total est: %lu, %0.2f%% (func.), %0.2f%% (total)\n", block_total * recursive, 100*((float)(recursive*block_total)/function_rdtsc), 100*((float)(recursive*block_total)/total_rdtsc));
 }
 
 static void print_harness_stats(const uint64_t rdtsc_freq_est, Harness* h, const uint64_t total_rdtsc)
@@ -329,7 +408,7 @@ static void print_harness_stats(const uint64_t rdtsc_freq_est, Harness* h, const
 
 static void print_quick_summary(const uint64_t rdtsc_freq_est, Profiler* p, const uint64_t total_rdtsc)
 {
-    printf("\n\t=============================== Summary ==================================\n");
+    printf("\n\t================================== Summary =====================================\n");
     for (uint8_t i = 0; i < p->harness_index; ++i)
     {
         Harness* h                    = &p->harness[i];
@@ -340,15 +419,30 @@ static void print_quick_summary(const uint64_t rdtsc_freq_est, Profiler* p, cons
         string_print(&h->function_label);
         if (recursive)
             printf("[%u]", h->recursive_calls +1);
-        printf(": %lu, %0.2f%%, %0.4fsec\n", function_rdtsc, 100*((float)function_rdtsc/total_rdtsc), (float)function_rdtsc / rdtsc_freq_est);
+        printf(": %lu, %0.2f%%, %0.4fsec", function_rdtsc, 100*((float)function_rdtsc/total_rdtsc), (float)function_rdtsc / rdtsc_freq_est);
+        if (h->data)
+            printf(", %0.2fmb - %0.2fgb/s", bytes_to(h->data, MB), bytes_to(h->data, GB)/((float)function_rdtsc/rdtsc_freq_est));
+        printf("\n");
+
         for (uint8_t k = 0; k < h->block_index; ++k)
         {
+            Ref_Block* block = &h->block[k];
             printf("\t\tblock ");
-            string_print(&h->block[k].label);
-            const uint64_t block_total = h->block[k].end - h->block[k].start;
-            printf(": %lu, %0.2f%% (func.), %0.2f%% (total) \n", block_total, 100*((float)block_total/function_rdtsc), 100*((float)block_total/total_rdtsc));
-            if (recursive)
-                printf("\t\t*recursive total est: %lu, %0.2f%% (func.), %0.2f%% (total)\n", block_total * recursive, 100*((float)(recursive*block_total)/function_rdtsc), 100*((float)(recursive*block_total)/total_rdtsc));
+            string_print(&block->label);
+            if (block->count > 1)
+            {
+                printf(": %lu, %lu avg, %0.2f%% (func.), %0.2f%% (total), %0.4fsec", block->total, block->total / block->count, 100*((float)block->total/function_rdtsc), 100*((float)block->total/total_rdtsc), (float)block->total/rdtsc_freq_est);
+                if (block->data)
+                    printf(", %0.2fmb - %0.2fgb/s", bytes_to(block->data, MB), bytes_to(block->data, GB)/((float)((float)block->total / block->count)/rdtsc_freq_est));
+            }
+            else
+            {
+                const uint64_t block_total = block->end - block->start;
+                printf(": %lu, %0.2f%% (func.), %0.2f%% (total), %0.4fsec", block_total, 100*((float)block_total/function_rdtsc), 100*((float)block_total/total_rdtsc), (float)block_total/rdtsc_freq_est);
+                if (block->data)
+                    printf(", %0.2fmb - %0.2fgb/s", bytes_to(block->data, MB), bytes_to(block->data, GB)/((float)block_total/rdtsc_freq_est));
+            }
+            printf("\n");
         }
     }
     printf("\n\ttotal: %lu, 100%% %0.4fsec\n",total_rdtsc, (float)total_rdtsc / rdtsc_freq_est);
@@ -358,7 +452,7 @@ static void print_quick_summary(const uint64_t rdtsc_freq_est, Profiler* p, cons
 static void print_profiling_stats(Profiler* p)
 {
     const uint64_t rdtsc_freq_est = test_rdtsc_frequency(500);
-    printf("\n\t=============================== Profiler =================================\n");
+    printf("\n\t================================== Profiler ====================================\n");
     printf("\trdtsc freq: %lu *times are estimated based on rdtsc frequency calculation\n", rdtsc_freq_est);
     const uint64_t total_rdtsc = p->end - p->start;
     printf("\tprogram start: %lu -> end %lu\n\tprogram total: %lu, 100%% %0.4fsec\n", p->start, p->end, total_rdtsc, (float)total_rdtsc / rdtsc_freq_est);

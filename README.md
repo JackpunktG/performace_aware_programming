@@ -66,7 +66,19 @@ Then throughout the project add the following macros:
     PROFILER_PRINT;     // print out the statistic
 
 ```
-###### Timing functions
+###### Harness timings
+Allowing the capturing of data throughput. In both the harnesses and the blocks, can 0 be put into the size parameter, thus skipping the throughput calculation.
+```c
+    HARNESS_BEGIN(<label>, <byte size>); // Start of the harness 
+    HARNESS_END(<label>);                // End of the harness
+
+    /* within the harness area can blocks also be tested. 
+       having it recognise the harness_label, meaning it can be 
+       put anywhere down the call stack till the harness end is called */
+    HARNNESS_BLOCK(<harness_label>, <block_label>, <byte size>);
+    HARNNESS_BLOCK_END(<block_label>);
+```
+###### Basic Timing functions
 ```c
     TIME_FUNCTION;      // At the start of the function
     TIME_FUNCTION_END;  // ending the function
@@ -78,8 +90,10 @@ Then throughout the project add the following macros:
 
 Without adding the flag all the Marcos are turned off, and just a very lightweight timing of the whole program is done. To be able to see how much overhead the Profiler introduces
 
-![Profiler print out](/images/profiler.png)
-
 #### Recursive Blocks
 the handling of recursive block will total the amount of times called, and make an estimate of any blocks inside for a function and total run %.
 - These are seen with a `[]` with the total number of times the function is called.
+- Harness block called multiple times in the same harness will record the min, max, avg of the run throughs.
+
+![Profiler print out](/images/profiler.png)
+*Note: This is an overuse of the reecurise calls just for demenstration - in realitity would cause to many overheads
