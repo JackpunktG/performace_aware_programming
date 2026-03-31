@@ -1,7 +1,7 @@
 #define PERFORMACE_AWARE_PROGRAMMING_HELPER_IMPLEMENTATION
 #include "json_parser.h"
 
-
+#include "easy_args.h"
 
 /* Json Values create */
 #define MIN_X_LAT -90.0
@@ -153,99 +153,55 @@ double* get_points_from_json(Json_Element* json, uint64_t* count_out, Arena* are
     return points;
 }
 
-
-enum
-{
-    FLAG_GENERATE     = (1<<0),
-    FLAG_CLUSTER      = (1<<1),
-    FLAG_CALCULATE    = (1<<2),
-    FLAG_JSON_BASIC   = (1<<3),
-    FLAG_NO_REAULT    = (1<<4),
-    FLAG_ARENA_MEMORY = (1<<5),
-};
-
-
 int main(int argc, char* argv[])
 {
-    if (argc < 2)
-    {
-        fprintf(stderr, "Usage: -g [amount]\n");
-        fprintf(stderr, "Usage: -g cluster [cluster count] [amount]\n");
-        fprintf(stderr, "Usage: -c \n");
-        return 1;
-    }
-
     PROFILER_START;
 
-    uint32_t flags  = 0;
-    char* filename  = NULL;
-    char* count_str = NULL;
-    Arena* arena    = NULL;
+    Program_Flags flags  = {0};
+    Arena* arena         = NULL;
 
-    for (uint8_t i = 1; i < argc; ++i)
-    {
-        if (strcmp(argv[i], "-g") == 0 || strcmp(argv[i], "--generate") == 0)
-            flags |= FLAG_GENERATE;
-        else if (strcmp(argv[i], "cluster") == 0)
-            flags |= FLAG_CLUSTER;
-        else if (strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--calculate") == 0)
-            flags |= FLAG_CALCULATE;
-        else if (strcmp(argv[i], "json_basic") == 0)
-            flags |= FLAG_JSON_BASIC;
-        else if (strcmp(argv[i], "no_result") == 0)
-            flags |= FLAG_NO_REAULT;
-        else if (strcmp(argv[i], "--arena") == 0 || strcmp(argv[i], "-a") == 0)
-            flags |= FLAG_ARENA_MEMORY;
-        else
-        {
-            // assume the first unknown is filename - second count_str
-            if (filename == NULL)
-                filename = argv[i];
-            else if (count_str == NULL)
-                count_str = argv[i];
-            else
-                fprintf(stderr, "WARNING - arg: %s invalid\n", argv[i]);
-        }
-    }
+    HARNESS_BEGIN(args, 0);
+    if (!set_flags(&flags, argc, argv, EXPECTING_UNKNOWN))
+        return 1;
+    HARNESS_END(args);
 
-    if (flags & FLAG_GENERATE)
+    if (is_flag_set(&flags, FLAG_GENERATE))
     {
-        assert(filename != NULL && "ERROR - no amount given\n");
+        assert(flags.unknown_arg_count > 0 && "ERROR - no amount given\n");
 
         double* points         = NULL;
-        uint64_t count         = atoi(filename);
+        uint64_t count         = atoi(flags.unknown_arg[0]);
         uint64_t cluster_count = 0;
 
-        if (flags & FLAG_CLUSTER)
+        if (is_flag_set(&flags, FLAG_CLUSTER))
         {
-            assert(count_str != NULL && "ERROR - no cluster amount given\n");
-            cluster_count = atoi(count_str);
+            assert(flags.unknown_arg_count > 1 && "ERROR - no cluster amount given\n");
+            cluster_count = atoi(flags.unknown_arg[1]);
             points = create_cluster_points(count < cluster_count ? count : cluster_count, count < cluster_count ? cluster_count : count);
         }
         else
             points = create_points_json(count);
 
-        if (!(flags & FLAG_NO_REAULT))
+        if (!(is_flag_set(&flags, FLAG_NO_RESULT)))
             printf(",\n\"result\":%0.12lf\n}\n", calculate_haversine(points, cluster_count > count ? cluster_count : count));
         else
             printf("\n}\n");
 
         free(points);
     }
-    else if (flags & FLAG_CALCULATE)
+    else if (is_flag_set(&flags, FLAG_CALCULATE))
     {
-        assert(filename != NULL && "ERROR - no filename given\n");
-
+        assert(flags.unknown_arg_count > 0 && "ERROR - no amount given\n");
 
         Json_Element* json = NULL;
 
-        if (flags & FLAG_ARENA_MEMORY)
+        if (is_flag_set(&flags, FLAG_ARENA_MEMORY))
             arena = (Arena*)arena_init(ARENA_BLOCK_SIZE, 8);
 
 
         String* json_string = NULL;
         HARNESS_BEGIN(parse_json, 0);
-        json = parse_json(filename, &json_string, arena);
+        json = parse_json(flags.unknown_arg[0], &json_string, arena);
         HARNESS_END(parse_json);
 
 
