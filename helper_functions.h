@@ -167,10 +167,22 @@ static inline uint64_t test_rdtsc_frequency(uint32_t milli_sec);
 #define PROFILER_PRINT print_profiling_stats(&global_profiler)
 
 static Profiler global_profiler;
-#else
+#elif defined RUNTIME
 #define PROFILER_START Ref_Block program_runtime = {get_rdtsc()};
 #define PROFILER_END program_runtime.end = get_rdtsc();
 #define PROFILER_PRINT basic_program_runtime(&program_runtime);
+#define TIME_FUNCTION
+#define TIME_FUNCTION_END
+#define HARNESS_BEGIN(label, size)
+#define HARNESS_END(label)
+#define HARNESS_BLOCK(harness, label, size)
+#define HARNESS_BLOCK_END(label)
+#define TIME_BLOCK(label)
+#define TIME_BLOCK_END(label)
+#else
+#define PROFILER_START
+#define PROFILER_END
+#define PROFILER_PRINT
 #define TIME_FUNCTION
 #define TIME_FUNCTION_END
 #define HARNESS_BEGIN(label, size)

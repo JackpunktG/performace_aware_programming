@@ -185,7 +185,6 @@ static inline Json_Parser load_json(char* json_file, Arena* arena)
 Json_Element* parse_json_element(Json_Parser* parser, String label, Json_Token token, Arena* arena);
 Json_Element* parse_json_list(Json_Parser* parser, Json_Token start_token, Json_Token_Type end_type, bool has_label, Arena* arena)
 {
-    HARNESS_BEGIN(json_list, parser->source->count);
     Json_Element* first_elem = NULL;
     Json_Element* last_elem  = NULL;
     bool error               = false;
@@ -243,7 +242,6 @@ Json_Element* parse_json_list(Json_Parser* parser, Json_Token start_token, Json_
             error = true;
         }
     }
-    HARNESS_END(json_list);
     return first_elem;
 }
 
@@ -348,13 +346,18 @@ static Json_Element* get_json_element(Json_Element* json, String label)
 
 static Json_Element* parse_json(char* json_file, String** parser_out,  Arena* arena)
 {
+    HARNESS_BLOCK(parse_json, load_json_file, sizeof(double)*5000000*4);
     Json_Parser parser = load_json(json_file, arena);
+    HARNESS_BLOCK_END(load_json_file);
     String label = {0};
 
     // to free the Json File String
     *parser_out = parser.source;
 
+
+    HARNESS_BLOCK(parse_json, parse_json_element, sizeof(double)*5000000*4);
     Json_Element* result = parse_json_element(&parser, label, get_json_token(&parser), arena);
+    HARNESS_BLOCK_END(parse_json_element);
     return result;
 };
 

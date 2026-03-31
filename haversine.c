@@ -106,9 +106,7 @@ void test_json_haversine(double* points, uint64_t count, Json_Element* json)
     HARNESS_BEGIN(test_json_haversine, sizeof(double)*count*4);
     double result = calculate_haversine(points, count);
 
-    HARNESS_BLOCK(test_json_haversine, truth_result, 0);
     double truth_result = get_double_json_value(get_json_element(json, STR("result")));
-    HARNESS_BLOCK_END(truth_result);
 
     if (almost_equal((float)result, (float)truth_result))
         printf("result is the same!! Haversine avg: %0.10f\n", (float)result);
@@ -246,7 +244,9 @@ int main(int argc, char* argv[])
 
 
         String* json_string = NULL;
+        HARNESS_BEGIN(parse_json, 0);
         json = parse_json(filename, &json_string, arena);
+        HARNESS_END(parse_json);
 
 
         if (json)
@@ -254,11 +254,15 @@ int main(int argc, char* argv[])
             DEBUG_PRINT(json_nodes_print(json))
             uint64_t count;
 
+            HARNESS_BEGIN(get_points_from_json, sizeof(double)*5000000*4);
             double* points = get_points_from_json(json, &count, arena);
+            HARNESS_END(get_points_from_json);
 
+            HARNESS_BEGIN(test_json_haversine, sizeof(double)*count*4);
             test_json_haversine(points, count, json);
+            HARNESS_END(test_json_haversine);
 
-
+            HARNESS_BEGIN(free_json, 0);
             if (arena)
                 arena_destroy(arena);
             else
@@ -266,6 +270,7 @@ int main(int argc, char* argv[])
                 json_destroy(json, json_string);
                 free(points);
             }
+            HARNESS_END(free_json);
 
         }
 
