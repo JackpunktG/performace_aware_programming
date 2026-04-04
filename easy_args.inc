@@ -22,7 +22,8 @@ ARG(FLAG_ARENA_MEMORY, "--arena", 'a', ARG_INFO("program used an arena memory st
 #undef ARG_INFO
 #undef ARG
 
-// before
+/* Profiling of easy args */
+// before w/ simple loop with strcmp
 // 24276 - cold
 // ~5500 - hot 
 // with easy args
