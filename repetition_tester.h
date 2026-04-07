@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <x86intrin.h>
+#include <sys/resource.h>
 
 #define true  1
 #define false 0
@@ -22,6 +23,7 @@ enum : uint8_t
 typedef struct
 {
     uint64_t min, max, total, count;
+    uint64_t page_faults_min, page_faults_total;
 } Repetition_result;
 
 typedef struct
@@ -73,7 +75,7 @@ static uint64_t test_rdtsc_frequency(uint32_t milli_sec)
     }
     return rdtsc_freq;
 }
-#define TEST_SECONDS 10
+#define TEST_SECONDS 2
 
 Repetition_tester repetition_tester_init(const char* file_path)
 {
@@ -114,7 +116,7 @@ void test_begin(Repetition_tester* tester, const char* test_string)
     tester->state = TESTER_TESTING;
 }
 
-void while_testing(Repetition_tester* tester, const uint64_t rdtsc_test_ticks, const uint64_t bytes_read)
+void while_testing(Repetition_tester* tester, const uint64_t rdtsc_test_ticks, const uint64_t bytes_read, const uint64_t page_faults)
 {
 
 
@@ -127,19 +129,25 @@ void while_testing(Repetition_tester* tester, const uint64_t rdtsc_test_ticks, c
             return;
         }
 
+        //printf("rdtsc_test_ticks %lu\n", rdtsc_test_ticks);
         Repetition_result* results = &tester->results;
         tester->rdtsc_elapsed      += rdtsc_test_ticks;
 
         if (rdtsc_test_ticks < results->min || results->min == 0)
         {
-            results->min = rdtsc_test_ticks;
-            tester->rdtsc_elapsed = 0; //reset the timer
-            //printf("new mim found\n");
+            results->min             = rdtsc_test_ticks;
+            results->page_faults_min = page_faults;
+            tester->rdtsc_elapsed    = 0; //reset the timer
+
+            printf("\r%-80s", "");   // overwrite with spaces
+            printf("\r\t%s, min: %lu - ~%0.4fsec w/ page_faults: %lu", tester->test_string, tester->results.min, (float)tester->results.min / tester->rdtsc_freq, tester->results.page_faults_min);
+            fflush(stdout);
         }
-        if (rdtsc_test_ticks > results->max || results->max == 0)
+        if (rdtsc_test_ticks > results->max)
             results->max = rdtsc_test_ticks;
 
-        results->total += rdtsc_test_ticks;
+        results->total             += rdtsc_test_ticks;
+        results->page_faults_total += page_faults;
         ++results->count;
 
 
@@ -159,6 +167,7 @@ void print_results(Repetition_tester* tester)
         return;
     }
 
-    printf("\t%s, min: %lu - ~%0.4fsec, max: %lu - ~%0.4fsec", tester->test_string, tester->results.min, (float)tester->results.min / tester->rdtsc_freq, tester->results.max, (float)tester->results.max / tester->rdtsc_freq);
-    printf("\n\t\ttotal: %lu, count: %lu, avg: %.4lf\n\n",tester->results.total, tester->results.count, (double)tester->results.total / tester->results.count);
+    printf("\r%-80s\r", "");   // overwrite with spaces
+    printf("\t%s, min: %lu - ~%0.4fsec w/ page_faults: %lu, max: %lu - ~%0.4fsec", tester->test_string, tester->results.min, (float)tester->results.min / tester->rdtsc_freq, tester->results.page_faults_min, tester->results.max, (float)tester->results.max / tester->rdtsc_freq);
+    printf("\n\t\ttotal: %lu, count: %lu, avg: %.4lf, total page faults: %lu, size: %lu\n\n",tester->results.total, tester->results.count, (double)tester->results.total / tester->results.count, tester->results.page_faults_total, tester->bytes_expected);
 }
