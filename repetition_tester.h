@@ -134,7 +134,7 @@ void while_testing(Repetition_tester* tester, const uint64_t rdtsc_test_ticks, c
         {
             results->min = rdtsc_test_ticks;
             tester->rdtsc_elapsed = 0; //reset the timer
-            printf("new mim found\n");
+            //printf("new mim found\n");
         }
         if (rdtsc_test_ticks > results->max || results->max == 0)
             results->max = rdtsc_test_ticks;
@@ -147,6 +147,7 @@ void while_testing(Repetition_tester* tester, const uint64_t rdtsc_test_ticks, c
             tester->state = TESTER_FINISHED;
 
         rewind(tester->fp);
+        lseek(tester->fd, 0, SEEK_SET);
     }
 }
 
@@ -158,6 +159,6 @@ void print_results(Repetition_tester* tester)
         return;
     }
 
-    printf("\t%s, min: %lu - ~%0.4fsec", tester->test_string, tester->results.min, (float)tester->results.min/ tester->rdtsc_freq);
-    printf("\tmax: %lu, total: %lu, count: %lu, avg: %.4lf\n\n", tester->results.max, tester->results.total, tester->results.count, (double)tester->results.total / tester->results.count);
+    printf("\t%s, min: %lu - ~%0.4fsec, max: %lu - ~%0.4fsec", tester->test_string, tester->results.min, (float)tester->results.min / tester->rdtsc_freq, tester->results.max, (float)tester->results.max / tester->rdtsc_freq);
+    printf("\n\t\ttotal: %lu, count: %lu, avg: %.4lf\n\n",tester->results.total, tester->results.count, (double)tester->results.total / tester->results.count);
 }
