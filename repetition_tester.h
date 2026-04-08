@@ -75,26 +75,31 @@ static uint64_t test_rdtsc_frequency(uint32_t milli_sec)
     }
     return rdtsc_freq;
 }
-#define TEST_SECONDS 2
+#define TEST_SECONDS 10
 
-Repetition_tester repetition_tester_init(const char* file_path)
+Repetition_tester repetition_tester_init(const char* file_path, uint64_t size_expected)
 {
     Repetition_tester tester = {0};
-    tester.fp                = fopen(file_path, "rb");
-    tester.fd                = open(file_path, O_RDONLY);
-
-    if(tester.fp && tester.fp)
+    tester.rdtsc_freq        = test_rdtsc_frequency(1000);
+    if (file_path != NULL)
     {
-        struct stat file_info;
-        stat(file_path, &file_info);
+        tester.fp = fopen(file_path, "rb");
+        tester.fd = open(file_path, O_RDONLY);
 
-        tester.bytes_expected = file_info.st_size;
-        tester.rdtsc_freq     = test_rdtsc_frequency(1000);
-        tester.dest_buffer    = (uint8_t*)malloc(sizeof(uint8_t)*tester.bytes_expected);
-        tester.state          = TESTER_READY;
+        if(tester.fp && tester.fp)
+        {
+            struct stat file_info;
+            stat(file_path, &file_info);
+            tester.bytes_expected = file_info.st_size;
+
+            tester.dest_buffer = (uint8_t*)malloc(sizeof(uint8_t)*tester.bytes_expected);
+        }
+        else
+            fprintf(stderr, "ERROR: unable to open file %s\n", file_path);
     }
     else
-        fprintf(stderr, "ERROR: unable to open file %s\n", file_path);
+        tester.bytes_expected = size_expected;
+    tester.state = TESTER_READY;
 
     return tester;
 }
@@ -111,7 +116,8 @@ void test_begin(Repetition_tester* tester, const char* test_string)
 {
     memset(&tester->results, 0, sizeof(Repetition_result));
     strncpy(tester->test_string, test_string, 17);
-    rewind(tester->fp);
+    if (tester->fp != 0)
+        rewind(tester->fp);
 
     tester->state = TESTER_TESTING;
 }
@@ -154,8 +160,11 @@ void while_testing(Repetition_tester* tester, const uint64_t rdtsc_test_ticks, c
         if (tester->rdtsc_elapsed > tester->rdtsc_freq * TEST_SECONDS)
             tester->state = TESTER_FINISHED;
 
-        rewind(tester->fp);
-        lseek(tester->fd, 0, SEEK_SET);
+        if (tester->fp != 0)
+        {
+            rewind(tester->fp);
+            lseek(tester->fd, 0, SEEK_SET);
+        }
     }
 }
 

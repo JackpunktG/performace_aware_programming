@@ -15,7 +15,6 @@ int main(int argc, const char* argv[])
     struct rusage before;
     struct rusage after;
 
-    while(1)
     {
         test_begin(&tester, "read");
         while (tester.state == TESTER_TESTING)

@@ -28,11 +28,52 @@
 #include <sys/time.h>
 #include <x86intrin.h>
 #include <assert.h>
+#include <sys/resource.h>
 
 /* ========================================================================
     Haversine Calculation
     ======================================================================== */
 double calculate_haversine(double* points, uint64_t count);
+
+/* ========================================================================
+    Pointer Deconstruction
+    ======================================================================== */
+
+typedef struct
+{
+    uint16_t PML4_table;
+    uint16_t page_directory_pointer_table;
+    uint16_t page_directory;
+    uint16_t page_table;
+    uint32_t offset;
+    uint8_t page_type;
+} Deconstructed_Pointer;
+
+enum : uint8_t
+{
+    NORMAL_4K,
+    BIG_2MB,
+    BIG_1GB,
+};
+
+
+#define LEVEL_BITMASK 0x1FF
+Deconstructed_Pointer deconst_ptr(void* ptr);
+Deconstructed_Pointer deconst_ptr_2MB(void* ptr);
+Deconstructed_Pointer deconst_ptr_1GB(void* ptr);
+void print_pointer_info(void* ptr, uint8_t page_type);
+void _print_pointer_info(Deconstructed_Pointer ptr);
+
+/* ========================================================================
+    Page Faults
+    ======================================================================== */
+
+static inline uint64_t get_page_faults()
+{
+    struct rusage info;
+    getrusage(RUSAGE_SELF, &info);
+    return (uint64_t)info.ru_minflt;
+}
 
 /* ========================================================================
     Arena Memory Allocator
@@ -866,4 +907,82 @@ double calculate_haversine(double* points, uint64_t count)
     return distance / count;
 }
 
+Deconstructed_Pointer deconst_ptr(void* ptr)
+{
+    uint64_t p = (uint64_t)ptr;
+    printf("  0x%016lx\n", (uintptr_t)ptr);
+    Deconstructed_Pointer d_ptr = {0};
+
+    d_ptr.PML4_table                   = (uint16_t)((p >> 39) & LEVEL_BITMASK);
+    d_ptr.page_directory_pointer_table = (uint16_t)((p >> 30) & LEVEL_BITMASK);
+    d_ptr.page_directory               = (uint16_t)((p >> 21) & LEVEL_BITMASK);
+    d_ptr.page_table                   = (uint16_t)((p >> 12) & LEVEL_BITMASK);
+    d_ptr.offset                       = (uint32_t)p & 0xFFF;
+    d_ptr.page_type                    = NORMAL_4K;
+
+    return d_ptr;
+}
+Deconstructed_Pointer deconst_ptr_2MB(void* ptr)
+{
+    uint64_t p = (uint64_t)ptr;
+    Deconstructed_Pointer d_ptr = {0};
+
+    d_ptr.PML4_table                   = (uint16_t)((p >> 39) & LEVEL_BITMASK);
+    d_ptr.page_directory_pointer_table = (uint16_t)((p >> 30) & LEVEL_BITMASK);
+    d_ptr.page_directory               = (uint16_t)((p >> 21) & LEVEL_BITMASK);
+    d_ptr.offset                       = p & 0x1FFFFF;
+    d_ptr.page_type                    = BIG_2MB;
+
+    return d_ptr;
+}
+Deconstructed_Pointer deconst_ptr_1GB(void* ptr)
+{
+    uint64_t p = (uint64_t)ptr;
+    Deconstructed_Pointer d_ptr = {0};
+
+    d_ptr.PML4_table                   = (uint16_t)((p >> 39) & LEVEL_BITMASK);
+    d_ptr.page_directory_pointer_table = (uint16_t)((p >> 30) & LEVEL_BITMASK);
+    d_ptr.offset                       = p & 0x3FFFFFFF;
+    d_ptr.page_type                    = BIG_1GB;
+
+    return d_ptr;
+}
+void _print_pointer_info(Deconstructed_Pointer ptr)
+{
+    printf("PLM4_table: %hu | page_directory_pointer_table: %hu ", ptr.PML4_table, ptr.page_directory_pointer_table);
+    switch (ptr.page_type)
+    {
+    case NORMAL_4K:
+        printf("| page_directory: %hu | page_table: %hu ", ptr.page_directory, ptr.page_table);
+        break;
+    case BIG_2MB:
+        printf("| page_directory: %hu ", ptr.page_directory);
+        break;
+    }
+    printf("| offset: %u\n", ptr.offset);
+}
+void print_pointer_info(void* ptr, uint8_t page_type)
+{
+    uint64_t p = (uint64_t)ptr;
+    for (int32_t i = 63; i >= 0; --i)
+    {
+        if (p & ((uint64_t)1 << i))
+            printf("1");
+        else
+            printf("0");
+    }
+    printf("  0x%016lx\n", (uintptr_t)ptr);
+    switch (page_type)
+    {
+    case NORMAL_4K:
+        _print_pointer_info(deconst_ptr(ptr));
+        break;
+    case BIG_2MB:
+        _print_pointer_info(deconst_ptr_2MB(ptr));
+        break;
+    case BIG_1GB:
+        _print_pointer_info(deconst_ptr_1GB(ptr));
+        break;
+    }
+}
 #endif // PAP_HELPER_H_IMPLEMENTATION
