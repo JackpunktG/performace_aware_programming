@@ -72,7 +72,9 @@ static inline uint64_t get_page_faults()
 {
     struct rusage info;
     getrusage(RUSAGE_SELF, &info);
-    return (uint64_t)info.ru_minflt;
+    if (info.ru_majflt > 0)
+        printf("include in page_faults is %lu major fault\n", info.ru_majflt);
+    return (uint64_t)info.ru_minflt + info.ru_majflt;
 }
 
 /* ========================================================================
