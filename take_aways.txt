@@ -1,0 +1,53 @@
+===== Rep_testing =====
+
+----- basic while vs. for loop
+for (uint64_t i = 0 ; i < tester.bytes_expected; ++i) 
+    buffer[i] = (uint8_t)i; 
+
+about equal to
+ while(i < tester.bytes_expected)
+ {
+     buffer[i] = (uint8_t)i;
+     ++i
+ }
+
+    *self_for_loop, min: 2952099808 - ~1.0563sec 0.4080Gb/s, page_faults: 0, maj: 0
+		max: 3411358020 - ~1.2206sec, page_faults: 0, maj: 0
+			total: 31976595756, count: 10, avg: 3197659575.6000, size: 462782186
+			page_faults total: 0, maj: 0, test failed to run 1 time
+
+however this configue is 2x speed
+ while(i < tester.bytes_expected)
+    buffer[i++] = (uint8_t)i;
+
+	*self_while_loop, min: 1331762488 - ~0.4765sec 0.9045Gb/s, page_faults: 0, maj: 0
+		max: 2701106884 - ~0.9665sec, page_faults: 0, maj: 0
+			total: 40054282520, count: 20, avg: 2002714126.0000, size: 462782186
+			page_faults total: 0, maj: 0, test failed to run 2 time
+
+
+
+----- malloc vs. mmap
+
+consistantly mmap was slightly faster in all tests where writting to a buffer for the first time from file reading.
+even though the number of page faults were the same. 
+-> guess kernal does some things with read. (though same result were seen if fread was used instead)  
+-> writting to the buffer, with a for loop for example, was comparable.
+
+uint64_t* buffer = mmap(NULL, tester.bytes_expected, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+or
+const uint64_t bytes = (uint64_t)read(tester.fd, buffer, tester.bytes_expected);
+const uint64_t start = get_rdtscp(&cpu_id);
+const uint64_t bytes = (uint64_t)read(tester.fd, buffer, tester.bytes_expected); or fread
+const uint64_t end   = get_rdtscp(&cpu_id2);
+
+    read_malloc, min: 704780720 - ~0.2522sec 1.7091Gb/s, page_faults: 112984, maj: 0
+		max: 742429632 - ~0.2657sec, page_faults: 112984, maj: 0
+			total: 21368157916, count: 30, avg: 712271930.5333, size: 462782186
+			page_faults total: 3502506, maj: 0, test failed to run 1 time
+
+	read_mmap, min: 654505768 - ~0.2342sec 1.8404Gb/s, page_faults: 112984, maj: 0
+		max: 671577704 - ~0.2403sec, page_faults: 112984, maj: 0
+			total: 36281762300, count: 55, avg: 659668405.4545, size: 462782186
+			page_faults total: 6327104, maj: 0, test failed to run 1 time
+
