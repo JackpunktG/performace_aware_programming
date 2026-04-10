@@ -1,0 +1,5 @@
+nasm -f elf64 [file.asm] -o [file.o]
+ar rcs [lib.a] [file1.o]
+    r -> replace (or insert if missing)
+    c -> create archive if needed
+    s -> write symbol index (important!)
