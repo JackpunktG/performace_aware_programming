@@ -119,6 +119,7 @@ Repetition_tester repetition_tester_init(const char* file_path, const uint64_t f
             }
         }
     }
+
     tester.state = TESTER_READY;
     printf("estimated RDTSC frequency: %lu\n\n", tester.rdtsc_freq);
 
