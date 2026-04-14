@@ -85,6 +85,7 @@ static uint64_t test_rdtsc_frequency(uint32_t milli_sec)
 }
 #define TEST_FILE        (1 << 0)
 #define TEST_PAGE_FAULTS (1 << 1)
+#define TEST_SELF_BUFFER (1 << 2) // will alway set GB
 
 Repetition_tester repetition_tester_init(const char* file_path, const uint64_t flags, const uint8_t time_trying)
 {
@@ -119,6 +120,11 @@ Repetition_tester repetition_tester_init(const char* file_path, const uint64_t f
             }
         }
     }
+    else if (flags & TEST_SELF_BUFFER)
+    {
+        tester.bytes_expected = 1024*1024*1024;
+        tester.dest_buffer = (uint8_t*)malloc(sizeof(uint8_t)*tester.bytes_expected);
+    }
 
     tester.state = TESTER_READY;
     printf("estimated RDTSC frequency: %lu\n\n", tester.rdtsc_freq);
@@ -131,7 +137,8 @@ void repetition_tester_close(Repetition_tester* tester)
     fclose(tester->fp);
     close(tester->fd);
 
-    free(tester->dest_buffer);
+    if (tester->flags & TEST_SELF_BUFFER || tester->flags & TEST_FILE)
+        free(tester->dest_buffer);
     tester->dest_buffer = NULL;
 }
 void test_begin(Repetition_tester* tester, const char* test_string)

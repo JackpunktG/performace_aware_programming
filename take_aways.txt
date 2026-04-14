@@ -51,3 +51,40 @@ const uint64_t end   = get_rdtscp(&cpu_id2);
 			total: 36281762300, count: 55, avg: 659668405.4545, size: 462782186
 			page_faults total: 6327104, maj: 0, test failed to run 1 time
 
+
+------ branch prediction
+
+with a simple asm loop:
+mov_cond_jump_asm:
+    xor rax, rax
+.loop:
+    mov r8, [rdi + rax]
+    inc rax
+    test r8, 1
+    jnz .skip
+    nop
+.skip:
+    cmp rax, rsi
+    jb .loop
+    ret
+
+we can test with differently filled buffers the cost of a jump and how much effect the branch prediction has.
+
+    all 0's, min: 769606740 - ~0.2754sec 3.6313Gb/s,    *jnz never taken
+		max: 803947144 - ~0.2877sec
+
+	all 1's, min: 1436536052 - ~0.5140sec 1.9454Gb/s,   *always taken. cost of the jump halfing the throughput
+		max: 1442267176 - ~0.5161sec
+
+	2nd, min: 1201249616 - ~0.4298sec 2.3265Gb/s,       *taking half the time 
+		max: 1257314044 - ~0.4499sec
+
+	3rd, min: 1292757480 - ~0.4626sec 2.1618Gb/s,       *every 3rd
+		max: 1384597900 - ~0.4954sec
+
+	4th, min: 983855208 - ~0.3520sec 2.8405Gb/s,        *every 4th
+		max: 1050534492 - ~0.3759sec
+
+    random, min: 9915480708 - ~3.5480sec 0.2819Gb/s,    *even with just very basic rand() it tanks the throughput as we get loads of branch mispredictions
+		max: 9937406500 - ~3.5558sec
+

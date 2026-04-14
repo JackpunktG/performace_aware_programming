@@ -12,7 +12,6 @@ nop1x3_asm:
     inc rax
     cmp rax, rsi
     jb .loop
-    nop
     ret
 
 nop1x9_asm:

@@ -1,9 +1,62 @@
 #include "repetition_tester.h"
 #include <sys/mman.h>
 #include "direct_asm/direct_asm.h"
+#include <time.h>
 
 #include <assert.h>
 
+
+const char* tests[] =
+{"all 0", "all 1", "2nd", "3rd", "4th", "random"};
+
+enum : uint8_t
+{
+    ALL_0,
+    ALL_1,
+    EVERY_2,
+    EVERY_3,
+    EVERY_4,
+    RANDOM,
+
+
+    TEST_COUNT
+};
+
+void fill_buffer(uint8_t* buffer, uint64_t size, uint8_t type)
+{
+    switch (type)
+    {
+    case ALL_0:
+    case ALL_1:
+        memset(buffer, type == ALL_1 ? 1 : 0, sizeof(uint8_t) * size);
+        break;
+    case EVERY_2:
+    case EVERY_3:
+    case EVERY_4:
+        for (uint64_t i = 0; i < size; ++i)
+        {
+            if (type == EVERY_2 && i % 2 == 0)
+                buffer[i] = 1;
+            else if (type == EVERY_3 && i % 3 == 0)
+                buffer[i] = 1;
+            else if (type == EVERY_4 && i % 4 == 0)
+                buffer[i] = 1;
+            else
+                buffer[i] = 0;
+        }
+        break;
+    case RANDOM:
+        srand(time(NULL));
+        for (uint64_t i = 0; i < size; ++i)
+        {
+            buffer[i] = (uint8_t)rand();
+            //printf("%hhu\n",buffer[i]);
+        }
+        break;
+    default:
+        assert(0 && "ERROR\n");
+    }
+}
 
 
 int main(int argc, const char* argv[])
@@ -15,47 +68,24 @@ int main(int argc, const char* argv[])
     }
 
 
-    Repetition_tester tester = repetition_tester_init(argv[1], TEST_PAGE_FAULTS | TEST_FILE, 5);
+    Repetition_tester tester = repetition_tester_init(argv[1], TEST_SELF_BUFFER, 20);
     {
 
-        test_begin(&tester, "nop3x1");
-        while (tester.state == TESTER_TESTING)
+        for (uint8_t i = 5; i < TEST_COUNT; ++i)
         {
-            uint32_t cpu_id;
-            uint32_t cpu_id2;
-            const uint64_t start = get_rdtscp(&cpu_id);
-            nop_all_bytes_asm(tester.dest_buffer, tester.bytes_expected);
-            const uint64_t end   = get_rdtscp(&cpu_id2);
-            while_testing(&tester, end-start, tester.bytes_expected, cpu_id == cpu_id2);
+            fill_buffer(tester.dest_buffer, tester.bytes_expected, i);
+            test_begin(&tester, tests[i]);
+            while (tester.state == TESTER_TESTING)
+            {
+                uint32_t cpu_id;
+                uint32_t cpu_id2;
+                const uint64_t start = get_rdtscp(&cpu_id);
+                mov_cond_jump_asm(tester.dest_buffer, tester.bytes_expected);
+                const uint64_t end   = get_rdtscp(&cpu_id2);
+                while_testing(&tester, end-start, tester.bytes_expected, cpu_id == cpu_id2);
+            }
+            print_results(&tester);
         }
-
-        print_results(&tester);
-        test_begin(&tester, "nop1x3");
-        while (tester.state == TESTER_TESTING)
-        {
-            uint32_t cpu_id;
-            uint32_t cpu_id2;
-            const uint64_t start = get_rdtscp(&cpu_id);
-            nop1x3_asm(tester.dest_buffer, tester.bytes_expected);
-            const uint64_t end   = get_rdtscp(&cpu_id2);
-            while_testing(&tester, end-start, tester.bytes_expected, cpu_id == cpu_id2);
-        }
-
-        print_results(&tester);
-        test_begin(&tester, "nop1x9");
-        while (tester.state == TESTER_TESTING)
-        {
-            uint32_t cpu_id;
-            uint32_t cpu_id2;
-            const uint64_t start = get_rdtscp(&cpu_id);
-            nop1x9_asm(tester.dest_buffer, tester.bytes_expected);
-            const uint64_t end   = get_rdtscp(&cpu_id2);
-            while_testing(&tester, end-start, tester.bytes_expected, cpu_id == cpu_id2);
-        }
-
-        print_results(&tester);
-
-
     }
     repetition_tester_close(&tester);
 
