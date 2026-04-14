@@ -68,19 +68,87 @@ int main(int argc, const char* argv[])
     }
 
 
-    Repetition_tester tester = repetition_tester_init(argv[1], TEST_SELF_BUFFER, 20);
+    Repetition_tester tester = repetition_tester_init(argv[1], TEST_SELF_BUFFER, 5);
     {
 
-        for (uint8_t i = 5; i < TEST_COUNT; ++i)
+        // for (uint8_t i = 5; i < TEST_COUNT; ++i)
+        // {
+        //     fill_buffer(tester.dest_buffer, tester.bytes_expected, i);
+        //     test_begin(&tester, tests[i]);
+        //     while (tester.state == TESTER_TESTING)
+        //     {
+        //         uint32_t cpu_id;
+        //         uint32_t cpu_id2;
+        //         const uint64_t start = get_rdtscp(&cpu_id);
+        //         plus63_aligned_asm(tester.dest_buffer, tester.bytes_expected);
+        //         const uint64_t end   = get_rdtscp(&cpu_id2);
+        //         while_testing(&tester, end-start, tester.bytes_expected, cpu_id == cpu_id2);
+        //     }
+        //     print_results(&tester);
+        // }
+
+        const uint64_t size = 1024 * 1024 *1024;
+
         {
-            fill_buffer(tester.dest_buffer, tester.bytes_expected, i);
-            test_begin(&tester, tests[i]);
-            while (tester.state == TESTER_TESTING)
+            test_begin(&tester, "aligned");
+            uint32_t cpu_id;
+            uint32_t cpu_id2;
+            while(tester.state == TESTER_TESTING)
             {
-                uint32_t cpu_id;
-                uint32_t cpu_id2;
                 const uint64_t start = get_rdtscp(&cpu_id);
-                mov_cond_jump_asm(tester.dest_buffer, tester.bytes_expected);
+                aligned_asm(size);
+                const uint64_t end   = get_rdtscp(&cpu_id2);
+                while_testing(&tester, end-start, tester.bytes_expected, cpu_id == cpu_id2);
+            }
+            print_results(&tester);
+        }
+        {
+            test_begin(&tester, "1 plus");
+            uint32_t cpu_id;
+            uint32_t cpu_id2;
+            while(tester.state == TESTER_TESTING)
+            {
+                const uint64_t start = get_rdtscp(&cpu_id);
+                plus1_aligned_asm(size);
+                const uint64_t end   = get_rdtscp(&cpu_id2);
+                while_testing(&tester, end-start, tester.bytes_expected, cpu_id == cpu_id2);
+            }
+            print_results(&tester);
+        }
+        {
+            test_begin(&tester, "15 plus");
+            uint32_t cpu_id;
+            uint32_t cpu_id2;
+            while(tester.state == TESTER_TESTING)
+            {
+                const uint64_t start = get_rdtscp(&cpu_id);
+                plus15_aligned_asm(size);
+                const uint64_t end   = get_rdtscp(&cpu_id2);
+                while_testing(&tester, end-start, tester.bytes_expected, cpu_id == cpu_id2);
+            }
+            print_results(&tester);
+        }
+        {
+            test_begin(&tester, "31 plus");
+            uint32_t cpu_id;
+            uint32_t cpu_id2;
+            while(tester.state == TESTER_TESTING)
+            {
+                const uint64_t start = get_rdtscp(&cpu_id);
+                plus31_aligned_asm(size);
+                const uint64_t end   = get_rdtscp(&cpu_id2);
+                while_testing(&tester, end-start, tester.bytes_expected, cpu_id == cpu_id2);
+            }
+            print_results(&tester);
+        }
+        {
+            test_begin(&tester, "63 plus");
+            uint32_t cpu_id;
+            uint32_t cpu_id2;
+            while(tester.state == TESTER_TESTING)
+            {
+                const uint64_t start = get_rdtscp(&cpu_id);
+                plus63_aligned_asm(size);
                 const uint64_t end   = get_rdtscp(&cpu_id2);
                 while_testing(&tester, end-start, tester.bytes_expected, cpu_id == cpu_id2);
             }

@@ -11,3 +11,9 @@ extern void nop_all_bytes_asm(uint8_t* buffer, uint64_t size);
 extern void nop1x3_asm(uint8_t* buffer, uint64_t size);
 extern void nop1x3_extended_asm(uint8_t* buffer, uint64_t size);
 extern void nop1x9_asm(uint8_t* buffer, uint64_t size);
+
+extern void aligned_asm(uint64_t size);
+extern void plus1_aligned_asm(uint64_t size);
+extern void plus15_aligned_asm(uint64_t size);
+extern void plus31_aligned_asm(uint64_t size);
+extern void plus63_aligned_asm(uint64_t size);

@@ -88,3 +88,24 @@ we can test with differently filled buffers the cost of a jump and how much effe
     random, min: 9915480708 - ~3.5480sec 0.2819Gb/s,    *even with just very basic rand() it tanks the throughput as we get loads of branch mispredictions
 		max: 9937406500 - ~3.5558sec
 
+
+
+----- code alignment
+
+Having the same simple loop but changing the alignment:
+    aligned, min: 700521192 - ~0.2507sec 3.9895Gb/s,
+		max: 711441892 - ~0.2546sec
+
+	1 plus, min: 700477456 - ~0.2506sec 3.9898Gb/s,
+		max: 702949352 - ~0.2515sec
+
+	15 plus, min: 700410228 - ~0.2506sec 3.9901Gb/s,
+		max: 728728140 - ~0.2607sec
+
+	31 plus, min: 700528696 - ~0.2507sec 3.9895Gb/s,
+		max: 707494284 - ~0.2532sec
+
+	63 plus, min: 1409450868 - ~0.5043sec 1.9829Gb/s,
+		max: 1467884040 - ~0.5252sec
+
+basically identical speeds, until we but the loop over a cache alignment boundry. then the speed half. As it needs 2x the amount of time to fetch the caches inst.
