@@ -112,7 +112,7 @@ basically identical speeds, until we but the loop over a cache alignment boundry
 
 
 ----- RAT 
-Counterintuitively a set of instructions that are long can sometime be executed quicker, due to the inst. out-of-order and parallelism execution of modern CPU's. To do with the RAT and Register files.
+Counterintuitively a set of instructions that are longer can sometime be executed quicker, due to the inst. out-of-order and parallelism execution of modern CPU's. To do with the RAT and Register files.
 
 here are two asm loops;
 
