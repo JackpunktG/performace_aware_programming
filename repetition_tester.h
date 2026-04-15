@@ -134,8 +134,11 @@ Repetition_tester repetition_tester_init(const char* file_path, const uint64_t f
 
 void repetition_tester_close(Repetition_tester* tester)
 {
-    fclose(tester->fp);
-    close(tester->fd);
+    if (tester->fp)
+    {
+        fclose(tester->fp);
+        close(tester->fd);
+    }
 
     if (tester->flags & TEST_SELF_BUFFER || tester->flags & TEST_FILE)
         free(tester->dest_buffer);

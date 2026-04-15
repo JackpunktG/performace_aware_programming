@@ -17,3 +17,6 @@ extern void plus1_aligned_asm(uint64_t size);
 extern void plus15_aligned_asm(uint64_t size);
 extern void plus31_aligned_asm(uint64_t size);
 extern void plus63_aligned_asm(uint64_t size);
+
+extern void RAT_add();
+extern void RAT_mov_add();

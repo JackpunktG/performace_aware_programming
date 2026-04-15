@@ -109,3 +109,40 @@ Having the same simple loop but changing the alignment:
 		max: 1467884040 - ~0.5252sec
 
 basically identical speeds, until we but the loop over a cache alignment boundry. then the speed half. As it needs 2x the amount of time to fetch the caches inst.
+
+
+----- RAT 
+Counterintuitively a set of instructions that are long can sometime be executed quicker, due to the inst. out-of-order and parallelism execution of modern CPU's. To do with the RAT and Register files.
+
+here are two asm loops;
+
+RAT_add:
+align 64
+    mov rax, 1000000000
+.loop:
+    add rcx, 1     
+    add rcx, 1
+    dec rax
+    jnz .loop
+    ret
+
+    add, min: 1311313752 - ~0.4692sec
+		max: 1312704960 - ~0.4697sec
+
+RAT_mov_add:
+align 64
+    mov rax, 1000000000
+.loop:
+    mov rcx, rax
+    add rcx, 1
+    mov rcx, rax
+    add rcx, 1
+    dec rax
+    jnz .loop
+    ret
+
+  	mov+add, min: 1223584320 - ~0.4378sec 
+		max: 1224189792 - ~0.4380sec
+
+with the introduction for the mov inst. we break the dependancy chain of always needed to look at the last 'rcx' reg and build two set chains of just the mov and add, which can be done in parallel.
+*milage with the tests may vary. some people get up to a 2x speed boost, depending on CPU parallelisation specs.
