@@ -144,5 +144,5 @@ align 64
   	mov+add, min: 1223584320 - ~0.4378sec 
 		max: 1224189792 - ~0.4380sec
 
-with the introduction for the mov inst. we break the dependancy chain of always needed to look at the last 'rcx' reg and build two set chains of just the mov and add, which can be done in parallel.
+with the introduction for the mov inst. we break the dependancy chain of always needing to wait for the previous 'rcx' reg and instead build a two step dependancy chains of just the mov and add, which can be done in parallel.
 *milage with the tests may vary. some people get up to a 2x speed boost, depending on CPU parallelisation specs.
