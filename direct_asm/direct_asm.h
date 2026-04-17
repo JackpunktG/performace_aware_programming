@@ -20,3 +20,22 @@ extern void plus63_aligned_asm(uint64_t size);
 
 extern void RAT_add();
 extern void RAT_mov_add();
+
+extern void mov_8x1_asm(void* buffer);
+extern void mov_8x2_asm(void* buffer);
+extern void mov_8x3_asm(void* buffer);
+extern void mov_8x4_asm(void* buffer);
+extern void mov_1x2_asm(void* buffer);
+extern void write_8x1_asm(void* buffer);
+extern void write_8x2_asm(void* buffer);
+extern void write_8x3_asm(void* buffer);
+extern void write_8x4_asm(void* buffer);
+extern void write_1x2_asm(void* buffer);
+
+
+extern void mov_8bit_asm(uint8_t* buffer, uint64_t size);
+extern void mov_16bit_asm(uint8_t* buffer, uint64_t size);
+extern void mov_32bit_asm(uint8_t* buffer, uint64_t size);
+extern void mov_64bit_asm(uint8_t* buffer, uint64_t size);
+extern void mov_128bit_asm(uint8_t* buffer, uint64_t size);
+extern void mov_256bit_asm(uint8_t* buffer, uint64_t size);

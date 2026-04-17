@@ -5,9 +5,7 @@
 
 #include <assert.h>
 
-
-const char* tests[] =
-{"all 0", "all 1", "2nd", "3rd", "4th", "random"};
+#define array_count(arr) sizeof(arr) / sizeof(arr)[0]
 
 enum : uint8_t
 {
@@ -58,62 +56,48 @@ void fill_buffer(uint8_t* buffer, uint64_t size, uint8_t type)
     }
 }
 
+typedef struct
+{
+    char* name;
+    void (*function)(uint8_t* buffer, uint64_t amount);
+} Test;
+
+Test tests[] =
+{
+    {"8_bit", mov_8bit_asm},
+    {"16_bit", mov_16bit_asm},
+    {"32_bit", mov_32bit_asm},
+    {"64_bit", mov_64bit_asm},
+    {"128_bit", mov_128bit_asm},
+    {"256_bit", mov_256bit_asm},
+};
+
+#define GB 1024*1024*1028
 
 int main(int argc, const char* argv[])
 {
     if (argc < 2)
+        printf("WARNING: No args. Usage: [*testfile] (if applicable)\n");
+
+
+    Repetition_tester tester = repetition_tester_init(argv[1], 0, 10);
+    tester.bytes_expected = GB;
+    uint8_t* buffer = mmap(NULL, 256 * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0, 0);
+    uint32_t cpu_1;
+    uint32_t cpu_2;
+    for (uint64_t i = 0; i < array_count(tests); ++i)
     {
-        printf("ERROR: No args. Usage: [testfile]");
-        return 1;
-    }
-
-
-    Repetition_tester tester = repetition_tester_init(argv[1], 0, 20);
-    {
-
-        // for (uint8_t i = 5; i < TEST_COUNT; ++i)
-        // {
-        //     fill_buffer(tester.dest_buffer, tester.bytes_expected, i);
-        //     test_begin(&tester, tests[i]);
-        //     while (tester.state == TESTER_TESTING)
-        //     {
-        //         uint32_t cpu_id;
-        //         uint32_t cpu_id2;
-        //         const uint64_t start = get_rdtscp(&cpu_id);
-        //         plus63_aligned_asm(tester.dest_buffer, tester.bytes_expected);
-        //         const uint64_t end   = get_rdtscp(&cpu_id2);
-        //         while_testing(&tester, end-start, tester.bytes_expected, cpu_id == cpu_id2);
-        //     }
-        //     print_results(&tester);
-        // }
-
+        test_begin(&tester, tests[i].name);
+        while(tester.state == TESTER_TESTING)
         {
-            test_begin(&tester, "add");
-            uint32_t cpu_id;
-            uint32_t cpu_id2;
-            while(tester.state == TESTER_TESTING)
-            {
-                const uint64_t start = get_rdtscp(&cpu_id);
-                RAT_add();
-                const uint64_t end   = get_rdtscp(&cpu_id2);
-                while_testing(&tester, end-start, tester.bytes_expected, cpu_id == cpu_id2);
-            }
-            print_results(&tester);
+            const uint64_t start = get_rdtscp(&cpu_1);
+            tests[i].function(buffer, GB);
+            const uint64_t end = get_rdtscp(&cpu_2);
+            while_testing(&tester, end - start, GB, cpu_2 == cpu_1);
         }
-        {
-            test_begin(&tester, "mov+add");
-            uint32_t cpu_id;
-            uint32_t cpu_id2;
-            while(tester.state == TESTER_TESTING)
-            {
-                const uint64_t start = get_rdtscp(&cpu_id);
-                RAT_mov_add();
-                const uint64_t end   = get_rdtscp(&cpu_id2);
-                while_testing(&tester, end-start, tester.bytes_expected, cpu_id == cpu_id2);
-            }
-            print_results(&tester);
-        }
+        print_results(&tester);
     }
+    munmap(buffer, 256*2);
     repetition_tester_close(&tester);
 
     return 0;

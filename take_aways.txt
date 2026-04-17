@@ -146,3 +146,42 @@ align 64
 
 with the introduction for the mov inst. we break the dependancy chain of always needing to wait for the previous 'rcx' reg and instead build a two step dependancy chains of just the mov and add, which can be done in parallel.
 *milage with the tests may vary. some people get up to a 2x speed boost, depending on CPU parallelisation specs.
+
+
+------ moving into 8 bits of a 64 bit reg
+then consider these two loops and testing output. 
+
+mov_8x2_asm:
+align 64
+    mov rsi, 100000000
+.loop:
+    mov rax, [rdi]
+    mov rax, [rdi]
+    sub rsi, 1
+    jnle .loop
+    ret
+
+    mov_8x2, min: 32614904 - ~0.0065sec 
+    max: 53494084 - ~0.0107sec
+
+mov_1x2_asm:
+align 64
+    mov rsi, 100000000
+.loop:
+    mov al, [rdi]
+    mov al, [rdi]
+    sub rsi, 1
+    jnle .loop
+    ret
+
+	mov_1x2, min: 65206876 - ~0.0130sec
+		max: 67859036 - ~0.0135sec
+
+the only difference here is that we in the second case, are only writting to the lowest 8 bits, however we see a 2x slow down with "less" data being moved.
+-> the cause of the slow down is that we are preserving the other bits in the reg (basically for legacy reasons)
+
+With the r9d for example if 0's out the top 32 bits for efficiency 
+
+
+
+
