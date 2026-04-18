@@ -68,7 +68,7 @@ xor r11, r11
 align 64
 .loop: 
     vmovdqu ymm0, [rdi] 
-    vmovdqu ymm0, [rdi + 32]
+    vmovdqu ymm1, [rdi + 32]
     add r11, 64
     cmp r11, rsi
     jb .loop

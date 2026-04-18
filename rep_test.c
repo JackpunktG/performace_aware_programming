@@ -59,20 +59,18 @@ void fill_buffer(uint8_t* buffer, uint64_t size, uint8_t type)
 typedef struct
 {
     char* name;
+    uint64_t size;
     void (*function)(uint8_t* buffer, uint64_t amount);
 } Test;
 
 Test tests[] =
 {
-    {"8_bit", mov_8bit_asm},
-    {"16_bit", mov_16bit_asm},
-    {"32_bit", mov_32bit_asm},
-    {"64_bit", mov_64bit_asm},
-    {"128_bit", mov_128bit_asm},
-    {"256_bit", mov_256bit_asm},
+    {"l1d cache", 32, cache_test_asm},
+    {"l2 cache", 512, cache_test_asm},
+    {"l3 cache", 1024*4, cache_test_asm},
 };
 
-#define GB 1024*1024*1028
+#define GB 1024*1024*1024
 
 int main(int argc, const char* argv[])
 {
@@ -80,24 +78,34 @@ int main(int argc, const char* argv[])
         printf("WARNING: No args. Usage: [*testfile] (if applicable)\n");
 
 
-    Repetition_tester tester = repetition_tester_init(argv[1], 0, 10);
+    Repetition_tester tester = repetition_tester_init(argv[1], 0, 5);
     tester.bytes_expected = GB;
-    uint8_t* buffer = mmap(NULL, 256 * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0, 0);
+    uint8_t* buffer = mmap(NULL, GB, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0, 0);
     uint32_t cpu_1;
     uint32_t cpu_2;
+    test_begin(&tester, "L1 test");
+    while(tester.state == TESTER_TESTING)
+    {
+        const uint64_t start = get_rdtscp(&cpu_1);
+        mov_256bit_asm(buffer, GB);
+        const uint64_t end = get_rdtscp(&cpu_2);
+        while_testing(&tester, end - start, GB, cpu_2 == cpu_1);
+    }
+    print_results(&tester);
     for (uint64_t i = 0; i < array_count(tests); ++i)
     {
+        tester.bytes_expected = tests[i].size * 1024 * 10000;
         test_begin(&tester, tests[i].name);
         while(tester.state == TESTER_TESTING)
         {
             const uint64_t start = get_rdtscp(&cpu_1);
-            tests[i].function(buffer, GB);
+            tests[i].function(buffer, tests[i].size * 1024);
             const uint64_t end = get_rdtscp(&cpu_2);
-            while_testing(&tester, end - start, GB, cpu_2 == cpu_1);
+            while_testing(&tester, end - start, tests[i].size * 1024 * 10000, cpu_2 == cpu_1);
         }
         print_results(&tester);
     }
-    munmap(buffer, 256*2);
+    munmap(buffer,GB);
     repetition_tester_close(&tester);
 
     return 0;

@@ -39,3 +39,7 @@ extern void mov_32bit_asm(uint8_t* buffer, uint64_t size);
 extern void mov_64bit_asm(uint8_t* buffer, uint64_t size);
 extern void mov_128bit_asm(uint8_t* buffer, uint64_t size);
 extern void mov_256bit_asm(uint8_t* buffer, uint64_t size);
+
+
+extern void cache_test_asm(uint8_t* buffer, uint64_t size);
+
