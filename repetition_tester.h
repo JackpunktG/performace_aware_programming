@@ -211,15 +211,14 @@ void while_testing(Repetition_tester* tester, const uint64_t rdtsc_test_ticks, c
 
         if (rdtsc_test_ticks < results->min || results->min == 0)
         {
+
             results->min             = rdtsc_test_ticks;
             results->page_faults_min = run_faults;
             results->majflt_min      = run_majflt;
             tester->rdtsc_elapsed    = 0; //reset the timer
 
-            printf("\r%-100s", "");
             float bandwidth = ((float)bytes_read / (1024*1024*1024))/ ((float)tester->results.min / tester->rdtsc_freq);
-            printf("\r\t%s, min: %lu - ~%0.4fsec %0.4fGb/s, %s", tester->test_string, tester->results.min, (float)tester->results.min / tester->rdtsc_freq,
-                   bandwidth,  tester->flags & TEST_PAGE_FAULTS ? "page_faults: " : "");
+            printf("\r\t%s, min: %lu - ~%0.4fsec %0.4fGb/s, %s", tester->test_string, tester->results.min, (float)tester->results.min / tester->rdtsc_freq, bandwidth,  tester->flags & TEST_PAGE_FAULTS ? "page_faults: " : "");
             if (tester->flags & TEST_PAGE_FAULTS)
                 printf("%u, maj: %u", run_faults, run_majflt);
             fflush(stdout);

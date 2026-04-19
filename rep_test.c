@@ -64,24 +64,16 @@ typedef struct
 {
     char* name;
     uint64_t size;
-    void (*function)(uint8_t* buffer, uint64_t tests_size, uint64_t test_count);
+    void (*function)(uint8_t* buffer, uint64_t inner_loop, uint64_t outer_loop, uint64_t pt_adance);
 } Test;
 
 Test tests[] =
 {
-    {"16Kib", 16 * KiB, cache_test_asm},
-    {"32Kib", 32 * KiB, cache_test_asm},
-    {"33Kib", 33 * KiB, cache_test_asm},
-    {"34KiB", 33 * KiB, cache_test_asm},
-    {"128KiB", 128 * KiB, cache_test_asm},
-    {"512KiB", 512 * KiB, cache_test_asm},
-    {"612KiB", 612 * KiB, cache_test_asm},
-    {"1MiB", 1 * MiB, cache_test_asm},
-    {"2MiB", 2 * MiB, cache_test_asm},
-    {"3MiB", 3 * MiB, cache_test_asm},
-    {"4MiB", 4 * MiB, cache_test_asm},
-    {"5MiB", 5 * MiB, cache_test_asm},
-    {"10MiB", 10 * MiB, cache_test_asm},
+    {"16Kib", 16 * KiB, cache_sets_test_asm},
+    {"32Kib", 32 * KiB, cache_sets_test_asm},
+    {"256KiB", 256 * KiB, cache_sets_test_asm},
+    {"2MiB", 2 * MiB, cache_sets_test_asm},
+    {"10MiB", 10 * MiB, cache_sets_test_asm},
 };
 
 
@@ -96,37 +88,39 @@ int main(int argc, const char* argv[])
     uint8_t* buffer = mmap(NULL, GiB, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0, 0);
     uint32_t cpu_1;
     uint32_t cpu_2;
-    test_begin(&tester, "L1 test");
-    while(tester.state == TESTER_TESTING)
+
+    uint64_t strides[64]= {0};
+    float gbs[64] = {0};
+
+
+
+    uint64_t index = 0;
+    const uint64_t inner_loop_count = 256;
+    const uint64_t outer_loop_count = 64;
+    tester.bytes_expected = 256 * 64 * 64;
+    for (uint64_t offset = 4160; offset <= 4160; offset += 64)
     {
-        const uint64_t start = get_rdtscp(&cpu_1);
-        mov_256bit_asm(buffer, GiB);
-        const uint64_t end = get_rdtscp(&cpu_2);
-        while_testing(&tester, end - start, GiB, cpu_2 == cpu_1);
-    }
-    print_results(&tester);
-    for (uint64_t i = 0; i < array_count(tests); ++i)
-    {
-        const uint64_t loop_count =  GiB / (tests[i].size);
-        tester.bytes_expected = loop_count * tests[i].size;
-        printf("count: %lu, bytes: %lu\n", loop_count, tester.bytes_expected);
-        test_begin(&tester, tests[i].name);
+        char name[10];
+        snprintf(name, sizeof(name), "%lu", offset);
+        test_begin(&tester, name);
         while(tester.state == TESTER_TESTING)
         {
             const uint64_t start = get_rdtscp(&cpu_1);
-            tests[i].function(buffer, tests[i].size, loop_count);
+            cache_sets_test_asm(buffer, inner_loop_count, outer_loop_count, offset);
             const uint64_t end = get_rdtscp(&cpu_2);
             while_testing(&tester, end - start, tester.bytes_expected, cpu_2 == cpu_1);
         }
+        gbs[index] =((float)tester.bytes_expected / (1024*1024*1024))/ ((float)tester.results.min / tester.rdtsc_freq);
+        strides[index++] = offset;
         print_results(&tester);
     }
-    uint64_t bytes[20] = {0};
-    float gbs[20] = {0};
+
     munmap(buffer,GiB);
 
-    printf("\n\nbytes,gb/s\n");
-    for (uint64_t i= 0; i< 20; ++i)
-        printf("%lu,%0.4f\n", bytes[i], gbs[i]);
+    printf("\n\noffset,gb/s\n");
+    for(uint64_t k = 0; k < index; ++k)
+        printf("%lu,%0.4f\n", strides[k], gbs[k]);
+
     repetition_tester_close(&tester);
 
     return 0;
