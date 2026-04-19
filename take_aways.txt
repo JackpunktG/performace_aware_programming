@@ -186,7 +186,7 @@ With the r9d for example if 0's out the top 32 bits for efficiency
 ----- Unaligned loads loads
 only really a problem if readying from the L1 cache:
 
-*image related data:
+*images/cache_indexing.png data:
 bytes,offset 0,offset 1,offset 15,offset 17,offset 33,offset 64,offset 65
 16384,244.5788,158.7475,159.2907,159.2109,159.4411,243.8701,158.5297
 32768,242.7521,150.7144,150.8197,150.9054,149.9334,238.1798,149.7006
@@ -198,7 +198,7 @@ bytes,offset 0,offset 1,offset 15,offset 17,offset 33,offset 64,offset 65
 ----- cache indexing:
 seeing significant drops in bandwidth if we are bring in cache lines that are a power of 2 apart. Due to how the cache indexing works with splitting into "sets". Atleast L1 & L2
 
-*image related data:
+*images/cache_performance_with_offset.png data:
 offset,gb/s
 0,239.4884
 64,239.4884
