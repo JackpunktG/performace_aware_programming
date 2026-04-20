@@ -289,3 +289,50 @@ ret
 
 just by using the nt version we get a massive speed increase. though not useful if reading from the data shortly after, as you will them be paying the full main memory price the first read. 
 
+
+------- Chucking File Reads
+if we can "chunk" our input and process them individually, we can achieve higher bandwidth, due less page fault.
+
+	16Kib, min: 423878028 - ~0.1517sec 6.4790Gb/s, page_faults: 4, maj: 0
+		max: 427556556 - ~0.1530sec, page_faults: 4, maj: 0
+
+	32Kib, min: 382831288 - ~0.1370sec 7.1737Gb/s, page_faults: 8, maj: 0
+		max: 397482344 - ~0.1422sec, page_faults: 8, maj: 0
+
+	128Kib, min: 356603744 - ~0.1276sec 7.7013Gb/s, page_faults: 64, maj: 0
+		max: 371739480 - ~0.1330sec, page_faults: 32, maj: 0
+
+	256Kib, min: 361129468 - ~0.1292sec 7.6048Gb/s, page_faults: 64, maj: 0
+		max: 377504232 - ~0.1351sec, page_faults: 64, maj: 0
+
+	512Kib, min: 363588904 - ~0.1301sec 7.5533Gb/s, page_faults: 128, maj: 0
+		max: 382775792 - ~0.1370sec, page_faults: 128, maj: 0
+
+	1MiB, min: 362047168 - ~0.1295sec 7.5855Gb/s, page_faults: 256, maj: 0
+		max: 368143496 - ~0.1317sec, page_faults: 256, maj: 0
+
+	1.5MiB, min: 364427560 - ~0.1304sec 7.5359Gb/s, page_faults: 384, maj: 0
+		max: 399692272 - ~0.1430sec, page_faults: 384, maj: 0
+
+	2MiB, min: 373949184 - ~0.1338sec 7.3441Gb/s, page_faults: 512, maj: 0
+		max: 403895548 - ~0.1445sec, page_faults: 512, maj: 0
+
+	3MiB, min: 408899736 - ~0.1463sec 6.7163Gb/s, page_faults: 768, maj: 00
+		max: 463014496 - ~0.1657sec, page_faults: 768, maj: 0
+
+	4MiB, min: 483399784 - ~0.1730sec 5.6812Gb/
+
+*images/cache_performance_with_offset.png data:
+chuck size  Gbs – no workload	Gbs – workload	Gbs – multi-thread  	Gbs – one read and one calc thread
+16Kib	    6.4972	            3.8826	        0.8196	                4.6914
+32Kib	    7.1721	            4.0972	        1.4616	                4.8939
+128Kib	    7.6928	            4.3066	        3.4831	                5.2618
+256Kib	    7.6666	            4.3043	        4.44	                5.2338
+512Kib	    7.5615	            4.2615	        5.4887	                5.1821
+1MiB	    7.5433	            4.2768	        6.0709	                5.0901
+1.5MiB	    7.5215	            4.3017	        5.7357	                5.0163
+2MiB	    7.3397	            4.2466	        4.9107	                4.6591
+3MiB	    6.6078	            3.9314	        4.1679	                3.7027
+4MiB	    5.7269	            3.5839	        4.068	                3.4296
+
+different techniques to work with the data, with the multi-threaded options we have allocated two buffer to allow for parallelism

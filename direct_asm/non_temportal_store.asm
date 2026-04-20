@@ -1,5 +1,7 @@
 global save_multi_nt_asm
 global save_multi_asm
+global prefetch_test_asm
+global basic_summation_asm
 
 section .text
 
@@ -8,8 +10,6 @@ section .text
 ;rdx: how many time
 save_multi_nt_asm:
 align 64
-xor rax, rax
-xor rcx, rcx
 vmovdqu ymm0, [rsi]
 vmovdqu ymm1, [rsi + 32]
 .loop:
@@ -22,8 +22,6 @@ ret
 
 save_multi_asm:
 align 64
-xor rax, rax
-xor rcx, rcx
 vmovdqu ymm0, [rsi]
 vmovdqu ymm1, [rsi + 32]
 .loop:
@@ -34,4 +32,25 @@ vmovdqu ymm1, [rsi + 32]
     jnz .loop
 ret
 
+
+prefetch_test_asm:
+prefetcht0 [rdi]
+ret
+
+basic_summation_asm:
+align 64
+xor rax, rax
+mov r8, 10000
+.loop:
+    movzx rcx, byte[rdi]
+    add rax, rcx
+    movzx rcx, byte[rdi + 1]
+    add rax, rcx
+    movzx rcx, byte[rdi + 2]
+    add rax, rcx
+    movzx rcx, byte[rdi + 3]
+    add rax, rcx
+    dec r8
+    jnz .loop 
+    ret
 

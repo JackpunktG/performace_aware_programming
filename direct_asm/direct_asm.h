@@ -49,3 +49,6 @@ extern void cache_sets_test_asm(uint8_t* buffer, uint64_t inner_loop_count, uint
 extern void save_multi_nt_asm(uint8_t* dest, uint8_t* src, uint64_t copy_times);
 extern void save_multi_asm(uint8_t* dest, uint8_t* src, uint64_t copy_times);
 
+extern void prefetch_test_asm(uint8_t* ptr);
+extern uint64_t basic_summation_asm(uint8_t* buffer);
+
