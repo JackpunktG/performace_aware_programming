@@ -266,3 +266,26 @@ offset,gb/s
 4032,129.4446
 4096,13.6860
 4160,129.2733
+
+
+------ Non-temporal Stores
+non-temporal store, are fast store, with avoiding the cache. Take this simple loop where we are writng 1 cache line multiple time into buffer
+
+vmovdqu ymm0, [rsi]
+vmovdqu ymm1, [rsi + 32]
+.loop:
+    vmovdqa/vmovntdq [rdi], ymm0
+    vmovdqa/vmovntdq [rdi + 32], ymm1
+    add rdi, 64
+    dec rdx
+    jnz .loop
+ret
+
+    mov, min: 295568168 - ~0.1058sec 9.4554Gb/s,
+        max: 317993088 - ~0.1138sec
+
+    movnt, min: 80442628 - ~0.0288sec 34.7417Gb/s,
+		max: 93882964 - ~0.0336sec
+
+just by using the nt version we get a massive speed increase. though not useful if reading from the data shortly after, as you will them be paying the full main memory price the first read. 
+

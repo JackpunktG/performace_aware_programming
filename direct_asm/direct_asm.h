@@ -46,3 +46,6 @@ extern void cache_test_unaligned_asm(uint8_t* buffer, uint64_t test_size, uint64
 extern void cache_test_mask_asm(uint8_t* buffer, uint64_t size, uint64_t bit_mask);
 extern void cache_sets_test_asm(uint8_t* buffer, uint64_t inner_loop_count, uint64_t outer_loop_count, uint64_t pt_advance);
 
+extern void save_multi_nt_asm(uint8_t* dest, uint8_t* src, uint64_t copy_times);
+extern void save_multi_asm(uint8_t* dest, uint8_t* src, uint64_t copy_times);
+

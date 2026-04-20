@@ -89,37 +89,42 @@ int main(int argc, const char* argv[])
     uint32_t cpu_1;
     uint32_t cpu_2;
 
-    uint64_t strides[64]= {0};
-    float gbs[64] = {0};
 
+    uint8_t* to_copy = mmap(NULL, 64, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0,0);
+    for (uint64_t i = 0; i < 64; ++i)
+        to_copy[i] = i;
 
+    for (uint8_t i= 0; i < 64; ++i)
+        printf("%hhu,", buffer[320 + i]);
+    printf("\n");
 
-    uint64_t index = 0;
-    const uint64_t inner_loop_count = 256;
-    const uint64_t outer_loop_count = 64;
-    tester.bytes_expected = 256 * 64 * 64;
-    for (uint64_t offset = 4160; offset <= 4160; offset += 64)
+    test_begin(&tester, "movnt");
+    while(tester.state == TESTER_TESTING)
     {
-        char name[10];
-        snprintf(name, sizeof(name), "%lu", offset);
-        test_begin(&tester, name);
-        while(tester.state == TESTER_TESTING)
-        {
-            const uint64_t start = get_rdtscp(&cpu_1);
-            cache_sets_test_asm(buffer, inner_loop_count, outer_loop_count, offset);
-            const uint64_t end = get_rdtscp(&cpu_2);
-            while_testing(&tester, end - start, tester.bytes_expected, cpu_2 == cpu_1);
-        }
-        gbs[index] =((float)tester.bytes_expected / (1024*1024*1024))/ ((float)tester.results.min / tester.rdtsc_freq);
-        strides[index++] = offset;
-        print_results(&tester);
+        const uint64_t start = get_rdtscp(&cpu_1);
+        save_multi_nt_asm(buffer, to_copy, 16777216);
+        const uint64_t end = get_rdtscp(&cpu_2);
+        while_testing(&tester, end - start, tester.bytes_expected, cpu_2 == cpu_1);
     }
+    print_results(&tester);
+
+    for (uint8_t i= 0; i < 64; ++i)
+        printf("%hhu,", buffer[320 + i]);
+    printf("\n");
+
+    memset(buffer, 0, GiB);
+
+    test_begin(&tester, "mov");
+    while(tester.state == TESTER_TESTING)
+    {
+        const uint64_t start = get_rdtscp(&cpu_1);
+        save_multi_asm(buffer, to_copy, 16777216);
+        const uint64_t end = get_rdtscp(&cpu_2);
+        while_testing(&tester, end - start, tester.bytes_expected, cpu_2 == cpu_1);
+    }
+    print_results(&tester);
 
     munmap(buffer,GiB);
-
-    printf("\n\noffset,gb/s\n");
-    for(uint64_t k = 0; k < index; ++k)
-        printf("%lu,%0.4f\n", strides[k], gbs[k]);
 
     repetition_tester_close(&tester);
 
