@@ -4,6 +4,8 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <x86intrin.h>
+#include <sys/time.h>
 typedef uint64_t u64;
 typedef uint32_t u32;
 typedef uint16_t u16;
@@ -39,10 +41,12 @@ const char* test_names[] =
     "Sqrt"
 };
 
+typedef f64 Math_func(f64);
+
 typedef struct
 {
     f64 min, max;
-    f64 (*func)(f64);
+    Math_func* func;
 } Truth_Function;
 
 const Truth_Function truth[] =
@@ -55,21 +59,10 @@ const Truth_Function truth[] =
 
 typedef struct
 {
-    f64 (*func)(f64);
+    Math_func* func;
     Func_Type type;
     const char* desc;
 } Funtions;
-
-const Funtions tests[] =
-{
-    {cos, Cos, "math.lib"},
-    {sin, Sin, "math.lib"},
-    {asin, Asin, "math.lib"},
-    {sqrt, Sqrt, "math.lib"}
-};
-
-
-
 
 /* Testing Harnes for own library */
 
@@ -93,11 +86,11 @@ static inline f64 difference_val(f64 a, f64 b)
 }
 
 #define TEST_AMOUNT 1000
-void test_math_h()
+void test_math_h(Funtions* tests, u64 count)
 {
-    for (u8 i = 0; i < array_count(tests); ++i)
+    for (u8 i = 0; i < count; ++i)
     {
-        printf("Testing function %s with %s\n", tests[i].desc, test_names[tests[i].type]);
+        printf("Testing accuracy of function %s with %s\n", tests[i].desc, test_names[tests[i].type]);
         f64 difference = 0,  where;
         u64 count = 0;
 
@@ -106,11 +99,11 @@ void test_math_h()
 
         for (u64 k = 0; k < TEST_AMOUNT; ++k)
         {
-            if (!almost_equal(tests[tests[i].type].func(val), tests[i].func(val)))
+            if (!almost_equal(truth[tests[i].type].func(val), tests[i].func(val)))
             {
-                if (difference_val(tests[tests[i].type].func(val), tests[i].func(val)) > difference)
+                if (difference_val(truth[tests[i].type].func(val), tests[i].func(val)) > difference)
                 {
-                    difference = tests[tests[i].type].func(val), tests[i].func(val);
+                    difference = difference_val(truth[tests[i].type].func(val), tests[i].func(val));
                     where = val;
                 }
                 ++count;
@@ -119,24 +112,95 @@ void test_math_h()
         }
         if (count)
         {
-            printf("discrepencies found!\n");
+            printf("discrepancy found!\n");
             printf("\tbiggests differnce %f, at input %f\n", difference, where);
             printf("\tcount %lu\n", count);
         }
         else
         {
-            printf("no descrepencies found!\n");
+            printf("no discrepancy found!\n");
         }
         printf("\n");
     }
 }
 
+#define OS_TIMER_FREQ (uint64_t)1000000
+static inline uint64_t os_timer()
+{
+    struct timeval Value;
+    gettimeofday(&Value, 0);
+
+    return (OS_TIMER_FREQ*(uint64_t)Value.tv_sec) + (uint64_t)Value.tv_usec;
+}
+static inline uint64_t get_rdtsc()
+{
+    return __rdtsc();
+}
+static uint64_t test_rdtsc_frequency(uint32_t milli_sec)
+{
+    uint64_t waiting_time = milli_sec * (OS_TIMER_FREQ / 1000);
 
 
+    uint64_t os_start = os_timer();
+    uint64_t rdtsc_start = get_rdtsc();
+    uint64_t os_end = 0;
+    uint64_t os_elapsed = 0;
+    while(os_elapsed < waiting_time)
+    {
+        os_end = os_timer();
+        os_elapsed = os_end - os_start;
+    }
 
+    uint64_t rdtsc_end = get_rdtsc();
 
+    uint64_t rdtsc_freq;
+    if(os_elapsed)
+    {
+        rdtsc_freq = OS_TIMER_FREQ * (rdtsc_end - rdtsc_start) / os_elapsed;
+    }
+    return rdtsc_freq;
+}
+void test_speed(Funtions* tests, u64 count, u64 amount)
+{
+    const uint64_t rdtsc_freq_est = test_rdtsc_frequency(500);
+    for (u8 i = 0; i < count; ++i)
+    {
+        printf("Testing speed of function %s with %s, count %lu\n", tests[i].desc, test_names[tests[i].type], amount);
+        u8 type = tests[i].type;
+        f64 res = 0;
+        u64 r1 = __rdtsc();
+        for (u64 k = 0; k < amount; ++k)
+            res += truth[type].func(k);
+        u64 r2 = __rdtsc();
 
+        printf("\ttruth function: %0.4f - res %f\n", (f64)(r2-r1)/rdtsc_freq_est, res);
+        res = 0;
 
+        r1 = __rdtsc();
+        for (u64 k = 0; k < amount; ++k)
+            res += tests[i].func(k);
+
+        r2 = __rdtsc();
+
+        printf("\t%s function: %0.4f - res %f\n\n", tests[i].desc, (f64)(r2-r1)/rdtsc_freq_est, res);
+    }
+
+}
+
+/* Own Sqrt */
+
+f64 sqrt_ce(f64 input)
+{
+    __m128d x = _mm_set_sd(input);
+    x =_mm_sqrt_pd(x);
+
+    return _mm_cvtsd_f64(x);
+}
+
+f64 sqrt_ce_compact(f64 input)
+{
+    return _mm_cvtsd_f64(_mm_sqrt_pd(_mm_set_sd(input)));
+}
 
 
 
