@@ -16,6 +16,8 @@
 #define DEBUG_PRINT(print)
 #endif
 
+#define array_count(arr) (sizeof(arr) / sizeof(arr[0]))
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -841,14 +843,12 @@ static String* read_entire_file(char* file_name, Arena* arena)
         s = string_init(file_info.st_size, arena);
         if(s->data)
         {
-            HARNESS_BEGIN(ffread, file_info.st_size);
             if (fread(s->data, s->count, 1, file) != 1)
             {
                 fprintf(stderr, "ERROR - unable to read file %s\n", file_name);
                 if (arena == NULL)
                     string_destroy(s);
             }
-            HARNESS_END(ffread);
         }
         fclose(file);
     }

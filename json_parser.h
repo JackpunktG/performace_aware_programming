@@ -304,13 +304,11 @@ static void json_free(Json_Element* json)
 
 static void json_destroy(Json_Element* json, String* json_string)
 {
-    TIME_FUNCTION;
 
     json_free(json);
     string_destroy(json_string);
 
     json = NULL;
-    TIME_FUNCTION_END;
 }
 
 typedef enum
@@ -318,6 +316,7 @@ typedef enum
     JVT_INT,
     JVT_DOUBLE
 } Json_Value_Type;
+
 void* get_json_value(Json_Element* json, String label, Json_Value_Type type, Arena* arena)
 {
     Json_Element* next = json;
@@ -346,18 +345,14 @@ static Json_Element* get_json_element(Json_Element* json, String label)
 
 static Json_Element* parse_json(char* json_file, String** parser_out,  Arena* arena)
 {
-    HARNESS_BLOCK(parse_json, load_json_file, sizeof(double)*5000000*4);
     Json_Parser parser = load_json(json_file, arena);
-    HARNESS_BLOCK_END(load_json_file);
     String label = {0};
 
     // to free the Json File String
     *parser_out = parser.source;
 
 
-    HARNESS_BLOCK(parse_json, parse_json_element, sizeof(double)*5000000*4);
     Json_Element* result = parse_json_element(&parser, label, get_json_token(&parser), arena);
-    HARNESS_BLOCK_END(parse_json_element);
     return result;
 };
 
@@ -415,7 +410,42 @@ double get_double_json_value(Json_Element* elem)
     return strtod(value, NULL);
 }
 
+double* get_points_from_json(Json_Element* json, uint64_t* count_out, Arena* arena)
+{
+    Json_Element* points_on_earth = get_json_element(json, STR("points_on_earth"));
+    Json_Element* next            = points_on_earth->first_sub_elem;
 
+    uint64_t count = 0;
+    while (next != NULL)
+    {
+        ++count;
+        next = next->next_elem;
+    }
+
+    double* points = NULL;
+    if (arena != NULL)
+        points = (double*)arena_alloc(arena, sizeof(double) * count *4, NULL);
+    else
+        points = (double*)malloc(sizeof(double) * count *4);
+
+    uint64_t index = 0;
+    next = points_on_earth->first_sub_elem;
+    for (uint64_t i = 0; i < count; ++i)
+    {
+        Json_Element* point_node = next->first_sub_elem;
+        while (point_node != NULL)
+        {
+            points[index++] = get_double_json_value(point_node);
+
+            point_node = point_node->next_elem;
+        }
+        next = next->next_elem;
+    }
+
+    *count_out = count;
+
+    return points;
+}
 
 
 

@@ -1,7 +1,13 @@
 #define PERFORMACE_AWARE_PROGRAMMING_HELPER_IMPLEMENTATION
-#include "json_parser.h"
+#include "../json_parser.h"
 
-#include "easy_args.h"
+#include "../easy_args.h"
+#include "math_lib.h"
+#define P_val(value, print_symbol) printf("Value of "#value": "#print_symbol"\n", value)
+#include <stdint.h>
+
+#define true 1
+#define false 0
 
 /* Json Values create */
 #define MIN_X_LAT -90.0
@@ -9,18 +15,18 @@
 #define MIN_Y_LON -180.0
 #define MAX_Y_LON 180.0
 
-static double rand_double(double min, double max)
+static f64 rand_double(f64 min, f64 max)
 {
-    return min + ((double)rand() / (double)RAND_MAX * (max - min));
+    return min + ((f64)rand() / (f64)RAND_MAX * (max - min));
 }
 
-double* create_points_json(uint64_t count)
+f64* create_points_json(uint64_t count)
 {
     srand(time(NULL));
 
     printf("{\n\"points_on_earth\":[");
 
-    double* points = (double*)malloc(sizeof(double) *count *4);
+    f64* points = (f64*)malloc(sizeof(f64) *count *4);
 
     uint64_t total = 0;
     for(uint64_t i = 0; i < count -1; ++i)
@@ -51,7 +57,7 @@ typedef struct
     float x, y, r;
 } Cluster_Point;
 
-double* create_cluster_points(uint8_t clusters, uint64_t count)
+f64* create_cluster_points(uint8_t clusters, uint64_t count)
 {
     srand(time(NULL));
 
@@ -65,7 +71,7 @@ double* create_cluster_points(uint8_t clusters, uint64_t count)
         DEBUG_PRINT(printf("Cluster %d - x: %0.2f, y: %0.2f, r: %0.2f\n", i, point[i].x, point[i].y, point[i].r))
     }
 
-    double* points = (double*)malloc(sizeof(double) * count * 4);
+    f64* points = (f64*)malloc(sizeof(f64) * count * 4);
 
     printf("{\n\"points_on_earth\":[");
 
@@ -96,43 +102,161 @@ double* create_cluster_points(uint8_t clusters, uint64_t count)
     return points;
 }
 
-static inline bool almost_equal(float a, float b)
+typedef struct
 {
-    return a == b;
+    Json_Element* json;
+    String* json_name;
+    uint64_t json_size;
+
+    f64* points;
+    uint64_t count;
+    f64 truth_result;
+
+    bool error;
+    Arena* arena;
+} Haversine_Unit;
+
+#define MB (1024*1024)
+
+Haversine_Unit haversine_unit_init(char* file_name, Arena* arena)
+{
+    Haversine_Unit unit = {0};
+    unit.arena = arena;
+
+    unit.json      = parse_json(file_name, &unit.json_name, arena);
+    unit.json_size = (sizeof(uint8_t) * unit.json_name->count);
+
+    printf("json test size = %0.4fmb\n", (f64)unit.json_size / MB);
+
+    if (!unit.json)
+    {
+        unit.error = true;
+        return unit;
+    }
+
+
+    unit.points       = get_points_from_json(unit.json, &unit.count, arena);
+    unit.truth_result = get_double_json_value(get_json_element(unit.json, STR("result")));
+
+    return unit;
 }
 
-void test_json_haversine(double* points, uint64_t count, Json_Element* json)
+static void destory_haversine(Haversine_Unit* unit)
 {
-    HARNESS_BEGIN(test_json_haversine, sizeof(double)*count*4);
-    double result = calculate_haversine(points, count);
+    if (unit->arena)
+        arena_destroy(unit->arena);
+    else
+    {
+        if (unit->json)
+            json_destroy(unit->json, unit->json_name);
+        if (unit->points)
+            free(unit->points);
+    }
+}
 
-    double truth_result = get_double_json_value(get_json_element(json, STR("result")));
+void test_json_haversine(Haversine_Unit* unit)
+{
+    HARNESS_BEGIN(Haversine_calculations, unit->json_size);
 
-    if (almost_equal((float)result, (float)truth_result))
+    f64 result = calculate_haversine(unit->points, unit->count);
+
+    HARNESS_END(Haversine_calculations);
+    if (almost_equal((float)result, (float)unit->truth_result))
         printf("result is the same!! Haversine avg: %0.10f\n", (float)result);
     else
-        printf("results differ... calculated: %0.10f, json truth: %0.10f\n", (float)result, (float)truth_result);
-    HARNESS_END(test_json_haversine);
+        printf("results differ... calculated: %0.10f, json truth: %0.10f\n", (float)result, (float)unit->truth_result);
 
 }
+
+static inline void bigger_smaller(f64* val_s, f64* val_b, f64 val)
+{
+    if (val < *val_s)
+        *val_s = val;
+
+    if (val > *val_b)
+        *val_b = val;
+}
+
+void broken_down_haversine(Haversine_Unit* unit)
+{
+    f64 distance = 0;
+    f64 cos_min = 0;
+    f64 cos_max = 0;
+    f64 sin_min = 0;
+    f64 sin_max = 0;
+    f64 asin_min = 0;
+    f64 asin_max = 0;
+    f64 sqrt_min = 0;
+    f64 sqrt_max = 0;
+
+    for(uint64_t i = 0; i < unit->count *4; i +=4)
+    {
+        f64 x1 = unit->points[i];
+        f64 y1 = unit->points[i+1];
+        f64 x2 = unit->points[i+2];
+        f64 y2 = unit->points[i+3];
+
+        f64 lat1r = deg2rad(x1);
+        f64 lat2r = deg2rad(x2);
+        f64 dLat = deg2rad(x2 - x1);
+        f64 dLon = deg2rad(y2 - y1);
+
+        if (i == 0)
+        {
+            cos_min = cos_max = lat1r;
+            sin_min = sin_max = dLon /2;
+        }
+
+        bigger_smaller(&cos_min, &cos_max, lat1r);
+        bigger_smaller(&cos_min, &cos_max, lat2r);
+        bigger_smaller(&sin_min, &sin_max, dLon /2);
+        bigger_smaller(&sin_min, &sin_max, dLat /2);
+        f64 a = squared(sin(dLat / 2)) + cos(lat1r) * cos(lat2r) * squared(sin(dLon / 2));
+
+        if (i == 0)
+            sqrt_min = sqrt_max = a;
+
+        bigger_smaller(&sqrt_min, &sqrt_max, a);
+        a = sqrt(a);
+
+        if (i == 0)
+            asin_min = asin_max = a;
+
+        bigger_smaller(&asin_min, &asin_max, a);
+        f64 c = 2 * asin(a);
+
+        distance += EARTH_RADIUS_KM * c;
+    }
+    if (almost_equal((float)distance / unit->count, (float)unit->truth_result))
+        printf("result is the same!! Haversine avg: %0.10f\n", (float)distance / unit->count);
+    else
+        printf("results differ... calculated: %0.10f, json truth: %0.10f\n", (float)distance / unit->count, (float)unit->truth_result);
+
+
+    printf("cos (%f - %f)\n", cos_min, cos_max);
+    printf("sin (%f - %f)\n", sin_min, sin_max);
+    printf("asin (%f - %f)\n", asin_min, asin_max);
+    printf("sqrt (%f - %f)\n", sqrt_min, sqrt_max);
+}
+
+
 
 int main(int argc, char* argv[])
 {
     PROFILER_START;
-
     Program_Flags flags  = {0};
     Arena* arena         = NULL;
+    test_math_h();
+    return 0;
 
-    HARNESS_BEGIN(args, 0);
     if (!set_flags(&flags, argc, argv, EXPECTING_UNKNOWN))
         return 1;
-    HARNESS_END(args);
 
     if (is_flag_set(&flags, FLAG_GENERATE))
     {
         assert(flags.unknown_arg_count > 0 && "ERROR - no amount given\n");
 
-        double* points         = NULL;
+        f64* points         = NULL;
         uint64_t count         = atoi(flags.unknown_arg[0]);
         uint64_t cluster_count = 0;
 
@@ -156,52 +280,30 @@ int main(int argc, char* argv[])
     {
         assert(flags.unknown_arg_count > 0 && "ERROR - no amount given\n");
 
-        Json_Element* json = NULL;
-
         if (is_flag_set(&flags, FLAG_ARENA_MEMORY))
             arena = (Arena*)arena_init(ARENA_BLOCK_SIZE, 8);
 
-
-        String* json_string = NULL;
-        HARNESS_BEGIN(parse_json, 0);
-        json = parse_json(flags.unknown_arg[0], &json_string, arena);
-        HARNESS_END(parse_json);
+        Haversine_Unit unit = haversine_unit_init(flags.unknown_arg[0], arena);
 
 
-        if (json)
+        if (!unit.error)
         {
-            DEBUG_PRINT(json_nodes_print(json))
-            uint64_t count;
-
-            HARNESS_BEGIN(get_points_from_json, sizeof(double)*5000000*4);
-            double* points = get_points_from_json(json, &count, arena);
-            HARNESS_END(get_points_from_json);
-
-            HARNESS_BEGIN(test_json_haversine, sizeof(double)*count*4);
-            test_json_haversine(points, count, json);
-            HARNESS_END(test_json_haversine);
-
-            HARNESS_BEGIN(free_json, 0);
-            if (arena)
-                arena_destroy(arena);
-            else
-            {
-                json_destroy(json, json_string);
-                free(points);
-            }
-            HARNESS_END(free_json);
-
+            if (almost_equal(calculate_haversine(unit.points, unit.count), unit.truth_result))
+                printf("truth_works\n");
+            broken_down_haversine(&unit);
         }
 
-
+        destory_haversine(&unit);
     }
     else
         fprintf(stderr, "ERROR - args unknown\n");
 
-    PROFILER_END;
     PROFILER_PRINT;
-
+    PROFILER_END;
 
     return 0;
 }
+
+
+
 
