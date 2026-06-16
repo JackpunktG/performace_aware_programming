@@ -51,8 +51,8 @@ typedef struct
 
 const Truth_Function truth[] =
 {
-    {-1.570796f, 1.570796f, cos},
-    {-3.140970f, 3.140203f, sin},
+    {-1.57079632679f, 1.57079632679f, cos},
+    {-3.14159265359f, 3.14159265359f, sin},
     {0, 1, asin},
     {0, 1, sqrt}
 };
@@ -66,7 +66,7 @@ typedef struct
 
 /* Testing Harnes for own library */
 
-#define TOLLERANCE 0.00000f
+#define TOLLERANCE 0.000001f
 static inline b8 almost_equal(f64 a, f64 b)
 {
     return b >= (a - TOLLERANCE) && b <= (a + TOLLERANCE);
@@ -85,13 +85,13 @@ static inline f64 difference_val(f64 a, f64 b)
         return b - a;
 }
 
-#define TEST_AMOUNT 1000
+#define TEST_AMOUNT 100000000.0f
 void test_math_h(Funtions* tests, u64 count)
 {
     for (u8 i = 0; i < count; ++i)
     {
         printf("Testing accuracy of function %s with %s\n", tests[i].desc, test_names[tests[i].type]);
-        f64 difference = 0,  where;
+        f64 difference = 0, where;
         u64 count = 0;
 
         f64 inc = (truth[tests[i].type].max - truth[tests[i].type].min) / TEST_AMOUNT;
@@ -114,7 +114,7 @@ void test_math_h(Funtions* tests, u64 count)
         {
             printf("discrepancy found!\n");
             printf("\tbiggests differnce %f, at input %f\n", difference, where);
-            printf("\tcount %lu\n", count);
+            printf("\ttruth: %f, output: %f\n", truth[tests[i].type].func(where), tests[i].func(where));
         }
         else
         {
@@ -178,13 +178,47 @@ void test_speed(Funtions* tests, u64 count, u64 amount)
 
         r1 = __rdtsc();
         for (u64 k = 0; k < amount; ++k)
-            res += tests[i].func(k);
+            res += tests[i].func(i);
 
         r2 = __rdtsc();
 
         printf("\t%s function: %0.4f - res %f\n\n", tests[i].desc, (f64)(r2-r1)/rdtsc_freq_est, res);
     }
 
+}
+
+/* Own Sin */
+#define CONST_A_NEG 0.405284734569f
+#define CONST_A_POS -0.405284734569f
+#define CONST_B     1.27323954474f
+
+
+
+f64 sin_ce_polynomial_approx(f64 input) // very rough approximation based on parabola
+{
+    __m128d packed = _mm_set_pd(input, input*input);
+    packed = _mm_mul_pd(packed, _mm_set_pd(CONST_B, input > 0 ? CONST_A_POS : CONST_A_NEG));
+    packed = _mm_hadd_pd(packed, packed);
+
+    return _mm_cvtsd_f64(packed);
+}
+
+f64 sin_ce_polynomial_cubic(f64 input) // very rough approximation based on x^3
+{
+    if (input > M_PI*0.5)
+        input = M_PI - input;
+    else if (input < -(M_PI*0.5))
+        input = -(M_PI + input);
+    __m128d packed = _mm_set_pd(input, input*input*input);
+    packed = _mm_mul_pd(packed, _mm_set_pd(0.985, -0.141999));
+    packed = _mm_hadd_pd(packed, packed);
+
+    return _mm_cvtsd_f64(packed);
+}
+
+f64 cos_ce_polynomal_cubic(f64 input)
+{
+    return sin_ce_polynomial_cubic(input += M_PI*0.5);
 }
 
 /* Own Sqrt */
@@ -202,7 +236,92 @@ f64 sqrt_ce_compact(f64 input)
     return _mm_cvtsd_f64(_mm_sqrt_pd(_mm_set_sd(input)));
 }
 
+/* Taylor Series */
+f64 power_of(f64 x, u64 power)
+{
+    f64 res = x;
+    for (u64 i = 1; i < power; ++i)
+        res *= x;
 
+    return res;
+}
+
+u64 factorial(u64 x)
+{
+    if (x == 0)
+        return 0;
+
+    if (x == 1)
+        return 1;
+
+    return x*factorial(x-1);
+}
+
+f64 taylor_series_sin(f64 x, u64 length)
+{
+    if (length == 0)
+    {
+        printf("WARNING taylor_series_sin len = 0, defualting to 1\n");
+        length = 1;
+    }
+
+    u64 exponent = 1;
+    f64 res      = 0;
+    b8 plus      = 1;
+    while (exponent <= length)
+    {
+        if (plus)
+        {
+            res += (power_of(x, exponent)/factorial(exponent));
+            plus = 0;
+        }
+        else
+        {
+            res -= (power_of(x, exponent)/factorial(exponent));
+            plus = 1;
+        }
+        exponent += 2;
+    }
+    return res;
+}
+
+void test_taylor_series()
+{
+    for (u8 i = 1; i < 20; ++i)
+    {
+        printf("Testing accuracy of taylor_series with %hhu exponent\n", i);
+        f64 difference = 0, where;
+        u64 count = 0;
+
+        f64 inc = (truth[Sin].max - truth[Sin].min) / TEST_AMOUNT;
+        f64 val = truth[Sin].min;
+
+        for (u64 k = 0; k < TEST_AMOUNT; ++k)
+        {
+            if (!almost_equal(truth[Sin].func(val), taylor_series_sin(val, i)))
+            {
+                if (difference_val(truth[Sin].func(val), taylor_series_sin(val, i)) > difference)
+                {
+                    difference = difference_val(truth[Sin].func(val), taylor_series_sin(val, i));
+                    where = val;
+                }
+                ++count;
+            }
+            val += inc;
+        }
+        if (count)
+        {
+            printf("discrepancy found!\n");
+            printf("\tbiggests differnce %f, at input %f\n", difference, where);
+            printf("\ttruth: %f, output: %f\n", truth[Sin].func(where), taylor_series_sin(where, i));
+        }
+        else
+        {
+            printf("no discrepancy found!\n");
+        }
+        printf("\n");
+    }
+}
 
 /* TESTING Math.h */
 
