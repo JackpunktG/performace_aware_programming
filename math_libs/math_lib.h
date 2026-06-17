@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <x86intrin.h>
 #include <sys/time.h>
+#include <stdbool.h>
 typedef uint64_t u64;
 typedef uint32_t u32;
 typedef uint16_t u16;
@@ -53,7 +54,7 @@ const Truth_Function truth[] =
 {
     {-1.57079632679f, 1.57079632679f, cos},
     {-3.14159265359f, 3.14159265359f, sin},
-    {0, 1/sqrt(2), asin},
+    {0, 1, asin},
     {0, 1, sqrt}
 };
 
@@ -92,6 +93,7 @@ void test_math_h(Funtions* tests, u64 count)
     {
         printf("Testing accuracy of function %s with %s\n", tests[i].desc, test_names[tests[i].type]);
         f64 difference = 0, where;
+        f64 total_diff = 0;
         u64 count = 0;
 
         f64 inc = (truth[tests[i].type].max - truth[tests[i].type].min) / TEST_AMOUNT;
@@ -101,19 +103,23 @@ void test_math_h(Funtions* tests, u64 count)
         {
             if (!almost_equal(truth[tests[i].type].func(val), tests[i].func(val)))
             {
-                if (difference_val(truth[tests[i].type].func(val), tests[i].func(val)) > difference)
+                f64 diff = difference_val(truth[tests[i].type].func(val), tests[i].func(val));
+                if (diff > difference)
                 {
-                    difference = difference_val(truth[tests[i].type].func(val), tests[i].func(val));
+                    difference = diff;
                     where = val;
                 }
+                total_diff += diff;
                 ++count;
             }
             val += inc;
+            if (val > truth[tests[i].type].max)
+                val = truth[tests[i].type].max;
         }
         if (count)
         {
             printf("discrepancy found!\n");
-            printf("\tbiggests differnce %.17f, at input %f\n", difference, where);
+            printf("\tbiggests differnce %.17f, at input %0.17f, avg_diff: %0.17f\n", difference, where, total_diff/count);
             printf("\ttruth: %.17f\n\toutpt: %.17f\n", truth[tests[i].type].func(where), tests[i].func(where));
         }
         else
@@ -220,6 +226,7 @@ f64 cos_ce_polynomal_cubic(f64 input)
 {
     return sin_ce_polynomial_cubic(input += M_PI*0.5);
 }
+
 
 /* Own Sqrt */
 
@@ -441,7 +448,7 @@ void sine_test()
         printf("\nbiggest dif mftwp (%0.17f)\n%0.17f (truth)\n%0.17f (mftwp)\n\n", where_m,  truth[Sin].func(where_m), sin_horners_fma_dimetry_lookup(where_m, i));
     }
 }
-f64 sin_fma_lookup_written_6(const f64 x)
+f64 sin_fma_lookup_6(const f64 x)
 {
     const f64 x2 = x*x;
     f64 result = -0x1.9a0e192a4e2cbp-26;
@@ -454,36 +461,8 @@ f64 sin_fma_lookup_written_6(const f64 x)
     return result *x;
 }
 
-f64 sin_fma_lookup_written_7(const f64 x)
-{
-    const f64 x2 = x*x;
-    f64 result = 0x1.52ace959bd023p-33;
 
-    result = fma(result, x2, -0x1.ae00fd733fe8dp-26);
-    result = fma(result, x2, 0x1.71dce5ace58d2p-19);
-    result = fma(result, x2, -0x1.a019fce979937p-13);
-    result = fma(result, x2, 0x1.111111090f0bcp-7);
-    result = fma(result, x2, -0x1.5555555540b9bp-3);
-    result = fma(result, x2, 0x1.ffffffffffdcep-1);
-    return result *x;
-}
-
-
-f64 sin_fma_lookup_written_8(const f64 x)
-{
-    const f64 x2 = x*x;
-    f64 result = -0x1.9ef5d594b342p-41;
-
-    result = fma(result, x2,  0x1.60e59ae00e00cp-33);
-    result = fma(result, x2, -0x1.ae634d22bb47cp-26);
-    result = fma(result, x2, 0x1.71de37e62aacap-19);
-    result = fma(result, x2, -0x1.a01a0199e0eb3p-13);
-    result = fma(result, x2, 0x1.111111110941dp-7);
-    result = fma(result, x2, -0x1.5555555555469p-3);
-    result = fma(result, x2, 0x1.fffffffffffffp-1);
-    return result *x;
-}
-f64 sin_fma_lookup_written_9(const f64 x)
+f64 sin_fma_lookup_9(const f64 x)
 {
     const f64 x2 = x*x;
     f64 result = 0x1.883c1c5deffbep-49;
@@ -498,6 +477,39 @@ f64 sin_fma_lookup_written_9(const f64 x)
     result = fma(result, x2, 0x1p0);
     return result *x;
 }
+
+f64 sin_fma_lookup_11(const f64 x)
+{
+    const f64 x2 = x*x;
+    f64 result = -0x1.ff1898c107cfap-59;
+
+    result = fma(result, x2, 0x1.52947c90f8199p-55);
+    result = fma(result, x2, 0x1.71744c339ad03p-49);
+    result = fma(result, x2, -0x1.ae11556cad6c4p-41);
+    result = fma(result, x2, 0x1.612392f66fdcdp-33);
+    result = fma(result, x2, -0x1.ae64549aa7ca9p-26);
+    result = fma(result, x2, 0x1.71de3a52ad36dp-19);
+    result = fma(result, x2, -0x1.a01a01a01559ap-13);
+    result = fma(result, x2, 0x1.11111111110dp-7);
+    result = fma(result, x2, -0x1.5555555555555p-3);
+    result = fma(result, x2, 0x1p0);
+    return result *x;
+}
+f64 cos_fma_sin6(const f64 input)
+{
+    return sin_fma_lookup_6(input + M_PI*0.5);
+}
+
+f64 cos_fma_sin9(const f64 input)
+{
+    return sin_fma_lookup_9(input + M_PI*0.5);
+}
+
+f64 cos_fma_sin11(const f64 input)
+{
+    return sin_fma_lookup_11(input + M_PI*0.5);
+}
+
 
 /* Arcsine */
 static f64 ArcsineRadiansC_Taylor[] =
@@ -581,25 +593,44 @@ f64 arcsine_mftwp(const f64 x, i8 coefficient_count)
     return res * x;
 }
 
-f64 arcsine_handwritten(const f64 x)
+f64 arcsine_handwritten(f64 x)
 {
+    b8 over = false;
+    if (x >= 0.7071067811865475244008443621048490392848359376884740365883f)
+    {
+        x = sqrt_ce(1-(x*x));
+        over = true;
+    }
+
     const f64 x2 = x*x;
-    f64 res = 0x1.056424720e768p-2;
 
-    res = fma(res, x2, -0x1.1eabdc3fe561ap-1);
-    res = fma(res, x2, 0x1.38e97b1392a69p-1);
-    res = fma(res, x2, -0x1.7a954b7cb46e6p-2);
-    res = fma(res, x2, 0x1.53df7e2c17602p-3);
-    res = fma(res, x2, -0x1.cbd84d319158p-6);
-    res = fma(res, x2, 0x1.9a8031b47fd85p-6);
-    res = fma(res, x2, 0x1.5f396c79d5687p-6);
-    res = fma(res, x2, 0x1.f2f65baf85a8cp-6);
-    res = fma(res, x2, 0x1.6dafeb7453ee6p-5);
-    res = fma(res, x2, 0x1.33334839e1acap-4);
-    res = fma(res, x2, 0x1.5555553c5c8a7p-3);
-    res = fma(res, x2, 0x1.00000000013ap0);
+    f64 res =0x1.dfc53682725cap-1;
 
-    return res * x;
+    res = fma(res, x2, -0x1.bec6daf74ed61p1);
+    res = fma(res, x2, 0x1.8bf4dadaf548cp2);
+    res = fma(res, x2, -0x1.b06f523e74f33p2);
+    res = fma(res, x2, 0x1.4537ddde2d76dp2);
+    res = fma(res, x2, -0x1.6067d334b4792p1);
+    res = fma(res, x2, 0x1.1fb54da575b22p0);
+    res = fma(res, x2, -0x1.57380bcd2890ep-2);
+    res = fma(res, x2, 0x1.69b370aad086ep-4);
+    res = fma(res, x2, -0x1.21438ccc95d62p-8);
+    res = fma(res, x2, 0x1.b8a33b8e380efp-7);
+    res = fma(res, x2, 0x1.c37061f4e5f55p-7);
+    res = fma(res, x2, 0x1.1c875d6c5323dp-6);
+    res = fma(res, x2, 0x1.6e88ce94d1149p-6);
+    res = fma(res, x2, 0x1.f1c73443a02f5p-6);
+    res = fma(res, x2, 0x1.6db6db3184756p-5);
+    res = fma(res, x2, 0x1.3333333380df2p-4);
+    res = fma(res, x2, 0x1.555555555531ep-3);
+    res = fma(res, x2, 0x1p0);
+
+    res *= x;
+
+    if (over)
+        return M_PI/2 - res;
+    else
+        return res;
 }
 
 void arcsine_test()

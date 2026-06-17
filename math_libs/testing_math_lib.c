@@ -1,12 +1,14 @@
 #include "math_lib.h"
 Funtions tests[] =
 {
-    // {sqrt_ce, Sqrt, "Intrinsic sqrt"},
-    // {sqrt_ce_compact, Sqrt, "compact"},
-    //{sin_ce_polynomial_approx, Sin, "very rought approximation based on polynomial"},
-    //{sin_ce_polynomial_cubic, Sin, "Cubic varient"},
-    //{cos_ce_polynomal_cubic, Cos, "cubic calling sin shifted"},
-    {sin_fma_lookup_written_9, Sin, "hadwritten sin - 9 coefficient"},
+    {sqrt_ce, Sqrt, "Intrinsic sqrt"},
+    {sqrt_ce_compact, Sqrt, "compact"},
+    {sin_fma_lookup_6, Sin, "hadwritten sin - 6 coefficient"},
+    {cos_fma_sin6, Cos, "offseting sin_lookup_6"},
+    {sin_fma_lookup_9, Sin, "hadwritten sin - 9 coefficient"},
+    {cos_fma_sin9, Cos, "offseting sin_lookup_9"},
+    {sin_fma_lookup_11, Sin, "hadwritten sin - 11 coefficient"},
+    {cos_fma_sin11, Cos, "offseting sin_lookup_11"},
     {arcsine_handwritten, Asin, "hadwritten arc - 13 coefficient"},
 };
 
